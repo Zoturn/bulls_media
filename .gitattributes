@@ -1,0 +1,15 @@
+# Normalise line endings in the repository to LF, whatever the author's platform.
+* text=auto eol=lf
+
+# The hooks are executed by bash. A CRLF checkout makes the shebang `#!/usr/bin/env bash\r`, which
+# fails with a confusing "bad interpreter" on macOS and Linux — so these must stay LF even if
+# someone's global git config says otherwise.
+*.sh text eol=lf
+
+# Generated; keep it out of diffs so a review shows the change, not the lockfile churn.
+package-lock.json -diff linguist-generated
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.svg text eol=lf

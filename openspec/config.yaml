@@ -1,0 +1,54 @@
+schema: spec-driven
+
+context: |
+  Project: Inbound Brief Desk — an AI agent that triages inbound advertising enquiries for a
+  media sales team. An advertiser emails in ("we want to run a campaign, ~$40k, Q2, automotive").
+  The agent classifies the message, extracts a structured brief, checks it against ad policy,
+  searches the rate card, prices a package, and drafts a reply — then stops and waits for a human
+  to approve. It never sends anything on its own.
+
+  Single Next.js application (no monorepo, npm):
+    src/app/console      operator console — inbox, case detail, run trace, approval
+    src/app/api          REST route handlers — the only HTTP surface
+    src/lib/agent        the orchestrator: run loop, planner, step budget, run state
+    src/lib/tools        the five agent tools and their deterministic engines
+    src/lib/guardrails   policy refusal, untrusted-content handling, output post-conditions
+    src/lib/services     case, run and trace persistence
+    prisma               schema, migrations, deterministic seed
+
+  Stack: Next.js 16 (App Router) + React 19 + TypeScript strict + Tailwind CSS v4 +
+  TanStack Query v5. Prisma 6 + SQLite (one-line datasource swap to PostgreSQL).
+  AI SDK v7 (`ai`) with @ai-sdk/anthropic. Zod 4 for every contract. MiniSearch for
+  lexical retrieval. Pino for structured logs.
+
+  Agent shape: a custom typed orchestrator, not a framework graph. A bounded plan of steps,
+  each step with its own tool allowlist, each tool result validated by Zod before it re-enters
+  the model's context. The model chooses tools; it never performs arithmetic, never decides
+  policy, and never invents a price.
+
+  Testing: Jest for logic, tools, guardrails and the orchestrator driven by a mock model;
+  Cypress for HTTP behaviour and operator flows. The whole suite runs offline with no API key.
+
+  Conventions:
+    - Conventional Commits.
+    - CLAUDE.md carries orientation and a rule index only; detail lives in
+      .claude/rules/*.md and is referenced by path.
+    - Repeated automation lives in Claude Code hooks, never as prose inside a rule.
+
+rules:
+  proposal:
+    - Keep the proposal under 300 words; the "how" belongs in design.md.
+    - Always name the capabilities the change creates or modifies.
+    - Say what the agent is NOT allowed to do as a result of the change, not only what it gains.
+  specs:
+    - Every requirement needs at least one scenario using exactly four hashtags (#### Scenario:).
+    - Cover the failure and edge-case scenario, not just the happy path.
+    - Any requirement touching the model MUST have a scenario for adversarial input, because
+      every inbound message in this product is attacker-controlled text.
+    - State what a caller must NOT be able to observe or cause, not only what they can.
+  design:
+    - Record the alternatives considered for each decision, not just the choice.
+    - Name the deterministic check that proves the non-deterministic step behaved.
+  tasks:
+    - Group tasks by layer (data, tools, agent, api, ui, tests, docs) and order them by dependency.
+    - Every change ends with a task group that runs the suites and refreshes documentation.
