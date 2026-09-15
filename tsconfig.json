@@ -30,5 +30,9 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // cypress and cypress.config.ts are excluded from this program on purpose: Cypress's type
+  // package declares a global `expect` (Chai's) the moment any file pulling it in enters a tsc
+  // program, which silently replaces Jest's own global `expect` types everywhere else in the
+  // repo. cypress/tsconfig.json gives Cypress files their own scoped program instead.
+  "exclude": ["node_modules", "cypress", "cypress.config.ts"]
 }

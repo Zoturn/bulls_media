@@ -51,6 +51,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# IDE-local project state — the reviewer's own editor settings, not project config
+/.idea/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

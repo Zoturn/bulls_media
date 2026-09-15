@@ -32,16 +32,18 @@ export async function POST(req: Request) {
   return Response.json(run);
 }
 
-// yes: parsed, delegated, and answered with the shared envelope
+// yes: parsed, delegated, and answered with the shared envelope. errorResponse takes
+// (code, fieldErrors?) — the status always comes from the code, never from the caller, so
+// there is nothing to compute at the call site.
 export async function POST(req: Request) {
   const parsed = createRunSchema.safeParse(await req.json());
   if (!parsed.success) {
-    return errorResponse('VALIDATION_ERROR', 400, z.flattenError(parsed.error));
+    return errorResponse('VALIDATION_ERROR', z.flattenError(parsed.error));
   }
 
   const result = await startRun(parsed.data.caseId);
   if (!result.ok) {
-    return errorResponse(result.code, result.code === 'RUN_IN_PROGRESS' ? 409 : 400);
+    return errorResponse(result.code);
   }
 
   return Response.json({ runId: result.runId }, { status: 202 });

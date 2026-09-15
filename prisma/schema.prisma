@@ -1,0 +1,140 @@
+// SQLite for zero-friction local setup. No engine-specific types are used anywhere in this file,
+// so the same schema and migration apply against PostgreSQL with only the `provider` and
+// `DATABASE_URL` changed — see .claude/rules/data-model.md and the design doc for
+// add-project-foundation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Reference tables the tools read. Seeded, not agent-writable.
+// ---------------------------------------------------------------------------------------------
+
+model RateCardPackage {
+  id              String   @id
+  name            String
+  channel         String // display | video | audio | newsletter
+  format          String
+  unitPriceCents  Int
+  availableVolume Int
+  minFlightDays   Int
+  maxFlightDays   Int
+  createdAt       DateTime @default(now())
+
+  @@index([channel])
+}
+
+model PolicyRule {
+  id          String   @id
+  vertical    String
+  decision    String // ALLOW | REVIEW | REFUSE
+  description String
+  createdAt   DateTime @default(now())
+
+  @@index([vertical])
+}
+
+// ---------------------------------------------------------------------------------------------
+// The workflow: a message becomes a case, a case is processed by one or more runs, a run is
+// made of ordered steps, and a completed run may produce an assessment and an approval.
+// ---------------------------------------------------------------------------------------------
+
+model InboundMessage {
+  id          String   @id
+  fromAddress String
+  fromName    String
+  subject     String
+  body        String
+  receivedAt  DateTime
+
+  case Case?
+
+  @@index([receivedAt])
+}
+
+model Case {
+  id               String   @id @default(cuid())
+  inboundMessageId String   @unique
+  advertiser       String?
+  status           String   @default("OPEN") // OPEN | RESOLVED
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  inboundMessage InboundMessage @relation(fields: [inboundMessageId], references: [id])
+  runs           Run[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Run {
+  id            String    @id @default(cuid())
+  caseId        String
+  status        String    @default("RUNNING") // RUNNING | COMPLETED | REFUSED | NEEDS_HUMAN | FAILED
+  modelId       String
+  promptVersion String
+  maxSteps      Int
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  totalTokens   Int?
+  errorMessage  String?
+
+  case       Case        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  steps      RunStep[]
+  assessment Assessment?
+  approval   Approval?
+
+  @@index([caseId])
+  @@index([status])
+}
+
+model RunStep {
+  id         String   @id @default(cuid())
+  runId      String
+  index      Int
+  type       String // MODEL_CALL | TOOL_CALL | TERMINAL
+  toolName   String?
+  input      String? // JSON, shape owned by a Zod schema — see src/lib/tools/**
+  output     String? // JSON, shape owned by a Zod schema
+  error      String?
+  durationMs Int
+  tokens     Int?
+  createdAt  DateTime @default(now())
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, index])
+  @@index([runId])
+}
+
+model Assessment {
+  id            String   @id @default(cuid())
+  runId         String   @unique
+  disposition   String // QUOTED | REFUSED | NEEDS_INFO | NOT_A_BRIEF | NEEDS_REVIEW
+  summary       String // human-readable summary
+  structured    String // JSON — the full structured result, shape owned by a Zod schema
+  refusalReason String?
+  quoteCents    Int?
+  draftReply    String?
+  createdAt     DateTime @default(now())
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+}
+
+model Approval {
+  id        String    @id @default(cuid())
+  runId     String    @unique
+  decision  String? // APPROVED | REJECTED, null while pending
+  decidedBy String?
+  decidedAt DateTime?
+  note      String?
+  createdAt DateTime  @default(now())
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+}

@@ -3,9 +3,9 @@
 An AI agent that triages inbound advertising enquiries for a media sales team, and stops for a
 human before anything leaves the building.
 
-> **Status:** foundation in progress. The design is settled and specified under `openspec/`; the
-> table in [Implementation status](#implementation-status) says exactly what is built so far. This
-> README describes the system as specified, and marks anything not yet implemented.
+> **Status:** foundation complete, agent not yet built. The table in
+> [Implementation status](#implementation-status) says exactly what is built so far. This README
+> describes the system as specified, and marks anything not yet implemented.
 
 ## Problem statement
 
@@ -116,6 +116,12 @@ SQLite is used so that the first run costs nothing but `npm install`. Moving to 
 `DATABASE_URL` in `.env` and the `provider` line in `prisma/schema.prisma` — the schema uses no
 engine-specific types.
 
+No agent, tool or model call exists yet in this codebase — `add-project-foundation` is schema,
+seed, configuration, logging and a health check only. `ANTHROPIC_API_KEY` is validated by
+`src/lib/config.ts` when present, but nothing reads it: it is deliberately optional so the console
+and the whole Jest suite start with no key at all, and setting it now has no observable effect
+until `add-agent-orchestrator` exists.
+
 ## How to test and verify
 
 ```bash
@@ -125,13 +131,17 @@ npm test                          # Jest — runs offline, no API key required
 npm run db:reset && npm run e2e   # Cypress against a freshly seeded database
 ```
 
-The first three run today. `npm run e2e` has no specs to run until `add-project-foundation` lands
-its Cypress checks, and will report that rather than pass.
+All four run today, against `add-project-foundation`'s schema, seed, config, logger and health
+endpoint — there is no agent yet, so there is nothing agent-shaped to verify manually beyond
+`GET /api/health`. The Jest suite includes a real-SQLite integration spec
+(`prisma/schema.spec.ts`) for the two guarantees a mock cannot prove: cascade delete and the
+`RunStep` uniqueness constraint.
 
-The Jest suite cannot reach a model provider: `jest.setup.ts` deletes the provider keys, and the
-orchestrator is driven by `MockLanguageModelV4` with scripted tool calls. That is what makes
-assertions about agent behaviour — "this refusal happened", "this tool was never called" —
-deterministic rather than anecdotal.
+Once the orchestrator exists (`add-agent-orchestrator`), the Jest suite will not be able to reach
+a model provider either: `jest.setup.ts` already deletes the provider keys, ready for that change
+to drive the orchestrator with `MockLanguageModelV4` instead. That is what will make assertions
+about agent behaviour — "this refusal happened", "this tool was never called" — deterministic
+rather than anecdotal.
 
 Manual verification scenarios, with the seeded fixture each one uses, will be listed here as the
 console lands.
@@ -199,7 +209,7 @@ Productionising it would require, at minimum:
 
 | Change                      | Delivers                                                             | Status      |
 | --------------------------- | -------------------------------------------------------------------- | ----------- |
-| `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | specified   |
+| `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | **done**    |
 | `add-agent-tools`           | the five tools, their engines, retrieval index                       | not started |
 | `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | not started |
 | `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | not started |
