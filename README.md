@@ -3,7 +3,8 @@
 An AI agent that triages inbound advertising enquiries for a media sales team, and stops for a
 human before anything leaves the building.
 
-> **Status:** foundation complete, agent not yet built. The table in
+> **Status:** foundation and the five tools are built and individually tested; nothing calls them
+> yet — no orchestrator, no run loop, no refusal enforcement. The table in
 > [Implementation status](#implementation-status) says exactly what is built so far. This README
 > describes the system as specified, and marks anything not yet implemented.
 
@@ -131,11 +132,12 @@ npm test                          # Jest — runs offline, no API key required
 npm run db:reset && npm run e2e   # Cypress against a freshly seeded database
 ```
 
-All four run today, against `add-project-foundation`'s schema, seed, config, logger and health
-endpoint — there is no agent yet, so there is nothing agent-shaped to verify manually beyond
-`GET /api/health`. The Jest suite includes a real-SQLite integration spec
-(`prisma/schema.spec.ts`) for the two guarantees a mock cannot prove: cascade delete and the
-`RunStep` uniqueness constraint.
+All four run today. Beyond `add-project-foundation`'s schema, seed, config, logger and health
+endpoint, the suite now covers all five tools (`check_ad_policy`, `search_rate_card`,
+`lookup_inventory`, `calculate_quote`, `save_case`) and their deterministic engines — each tested
+both as a pure function against fixture data and, for anything touching the database, against a
+real disposable SQLite database (`src/lib/testing/testDb.ts`) rather than a mock. There is still
+no agent, so there is nothing agent-shaped to verify manually beyond calling a tool directly.
 
 Once the orchestrator exists (`add-agent-orchestrator`), the Jest suite will not be able to reach
 a model provider either: `jest.setup.ts` already deletes the provider keys, ready for that change
@@ -210,7 +212,7 @@ Productionising it would require, at minimum:
 | Change                      | Delivers                                                             | Status      |
 | --------------------------- | -------------------------------------------------------------------- | ----------- |
 | `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | **done**    |
-| `add-agent-tools`           | the five tools, their engines, retrieval index                       | not started |
+| `add-agent-tools`           | the five tools, their engines, retrieval index                       | **done**    |
 | `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | not started |
 | `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | not started |
 | `add-operator-console`      | inbox, case detail, live trace, approval gate                        | not started |

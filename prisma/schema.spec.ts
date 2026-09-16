@@ -1,66 +1,26 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, unlinkSync } from 'node:fs';
-import path from 'node:path';
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { createTestDb } from '@/lib/testing/testDb';
 
 /**
  * Cascade delete and the `@@unique([runId, index])` constraint are guarantees the *schema*
  * makes, not the application code — mocking Prisma here would only prove the mock does what it
  * was told, never that SQLite actually enforces the foreign key or the unique index. So this
  * spec runs against a real, disposable SQLite file, migrated fresh in `beforeAll` and removed in
- * `afterAll`. It stays a Jest spec rather than a Cypress one because nothing here crosses an HTTP
- * or browser boundary — only the database does, and Jest already runs in the same Node process
- * that talks to it directly.
+ * `afterAll` (via `createTestDb`, shared with the service-level integration specs). It stays a
+ * Jest spec rather than a Cypress one because nothing here crosses an HTTP or browser boundary —
+ * only the database does, and Jest already runs in the same Node process that talks to it
+ * directly.
  */
 
-const TEST_DB_PATH = path.join(__dirname, 'schema-test.db');
-const TEST_DB_URL = `file:${TEST_DB_PATH}`;
-const PROJECT_ROOT = path.join(__dirname, '..');
-// The local binary directly, not `npx prisma`: npx spends time resolving and launching prisma as
-// its own child process before prisma does the same for its own subcommand — one process layer
-// this test pays on every Jest run for no benefit, since the binary is already installed.
-const PRISMA_BIN = path.join(
-  PROJECT_ROOT,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
-);
-
-// Removes the db file and every SQLite sidecar file it may have left (-journal in rollback mode,
-// -wal/-shm in WAL mode) — one function so beforeAll's pre-clean and afterAll's post-clean can't
-// drift into cleaning up a different set of files from each other.
-function removeTestDbFiles(): void {
-  for (const suffix of ['', '-journal', '-wal', '-shm']) {
-    const f = TEST_DB_PATH + suffix;
-    if (existsSync(f)) unlinkSync(f);
-  }
-}
-
 let prisma: PrismaClient;
+let cleanup: () => Promise<void>;
 
 beforeAll(() => {
-  removeTestDbFiles();
-
-  // `migrate deploy`, applying the real committed migration file — not `db push`, which
-  // recomputes DDL directly from schema.prisma and would let this spec pass against a schema
-  // that migrate deploy (what CI and any real deploy actually runs) would not produce the same
-  // way if the two ever drifted. This spec's whole point is proving the shipped migration
-  // enforces cascade delete and the unique constraint, so it has to run that migration.
-  // `shell: true` because on Windows the binary is `prisma.cmd`, a batch launcher execFileSync
-  // cannot invoke directly — the shell is what knows how to run it.
-  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
-    cwd: PROJECT_ROOT,
-    env: { ...process.env, DATABASE_URL: TEST_DB_URL },
-    stdio: 'pipe',
-    shell: true,
-  });
-
-  prisma = new PrismaClient({ datasourceUrl: TEST_DB_URL });
+  ({ prisma, cleanup } = createTestDb('schema'));
 }, 30_000);
 
 afterAll(async () => {
-  await prisma.$disconnect();
-  removeTestDbFiles();
+  await cleanup();
 });
 
 async function createCaseWithRun(idSuffix: string) {

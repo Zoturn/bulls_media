@@ -70,6 +70,16 @@ describe('seed fixtures', () => {
     expect(channels).toEqual(new Set(['display', 'video', 'audio', 'newsletter']));
   });
 
+  it('gives every rate-card package a valid pricing unit, matching its channel', () => {
+    for (const pkg of RATE_CARD) {
+      expect(['PER_THOUSAND', 'PER_UNIT']).toContain(pkg.pricingUnit);
+      // Newsletter is priced per send, not per 1,000 sends — every other seeded channel is
+      // impression/play volume, priced per 1,000. A future package breaking this pattern is fine;
+      // this test only pins today's fixtures, not a rule about channels in general.
+      expect(pkg.pricingUnit).toBe(pkg.channel === 'newsletter' ? 'PER_UNIT' : 'PER_THOUSAND');
+    }
+  });
+
   it('gives every policy rule a unique id and a valid decision', () => {
     const ids = POLICY_RULES.map((r) => r.id);
     expect(new Set(ids).size).toBe(ids.length);

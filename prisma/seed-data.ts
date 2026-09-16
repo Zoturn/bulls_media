@@ -1,4 +1,4 @@
-import type { PolicyDecision, RateCardChannel } from '@/lib/domain/enums';
+import type { PolicyDecision, RateCardChannel, RateCardPricingUnit } from '@/lib/domain/enums';
 
 /**
  * Fixed, hand-written fixture data for `prisma/seed.ts`.
@@ -19,6 +19,7 @@ export const RATE_CARD: ReadonlyArray<{
   channel: RateCardChannel;
   format: string;
   unitPriceCents: number;
+  pricingUnit: RateCardPricingUnit;
   availableVolume: number;
   minFlightDays: number;
   maxFlightDays: number;
@@ -29,6 +30,7 @@ export const RATE_CARD: ReadonlyArray<{
     channel: 'display',
     format: '300x250 / 728x90',
     unitPriceCents: 800, // per 1,000 impressions
+    pricingUnit: 'PER_THOUSAND',
     availableVolume: 5_000_000,
     minFlightDays: 7,
     maxFlightDays: 90,
@@ -39,6 +41,7 @@ export const RATE_CARD: ReadonlyArray<{
     channel: 'display',
     format: '970x250',
     unitPriceCents: 4_500,
+    pricingUnit: 'PER_THOUSAND',
     availableVolume: 200_000,
     minFlightDays: 1,
     maxFlightDays: 14,
@@ -49,6 +52,7 @@ export const RATE_CARD: ReadonlyArray<{
     channel: 'video',
     format: ':15 / :30 non-skippable',
     unitPriceCents: 2_200,
+    pricingUnit: 'PER_THOUSAND',
     availableVolume: 1_200_000,
     minFlightDays: 7,
     maxFlightDays: 60,
@@ -59,6 +63,7 @@ export const RATE_CARD: ReadonlyArray<{
     channel: 'audio',
     format: ':30 audio',
     unitPriceCents: 1_400,
+    pricingUnit: 'PER_THOUSAND',
     availableVolume: 800_000,
     minFlightDays: 7,
     maxFlightDays: 60,
@@ -69,6 +74,7 @@ export const RATE_CARD: ReadonlyArray<{
     channel: 'newsletter',
     format: 'single sponsor block',
     unitPriceCents: 12_000, // per send
+    pricingUnit: 'PER_UNIT',
     availableVolume: 40, // sends available in period
     minFlightDays: 1,
     maxFlightDays: 30,

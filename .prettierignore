@@ -17,7 +17,3 @@ openspec/specs
 
 # Rule files are authored to a fixed house format; Prettier rewrites their frontmatter quoting.
 .claude/rules
-
-# Seeded corpus. These are fixtures standing in for advertiser email and rate-card documents, and
-# their exact whitespace is part of what the retrieval and injection tests assert against.
-content

@@ -18,8 +18,8 @@ src/lib/tools/        the five agent tools and their deterministic engines
 src/lib/guardrails/   refusal rules, untrusted-content handling, post-conditions
 src/lib/services/     case, run and trace persistence
 src/lib/observability/ structured logging and trace recording
-prisma/               schema, migrations, deterministic seed
-content/              seeded rate-card and policy corpus the retrieval tool searches
+prisma/               schema, migrations, deterministic seed — the rate-card and policy corpus
+                       the retrieval tool searches is built from these rows, not separate files
 openspec/             change proposals and the specs they produce
 .claude/rules/        the conventions this project is held to
 .claude/hooks/        automation (see below)

@@ -11,6 +11,10 @@ const config = {
   testEnvironment: 'node',
   roots: ['<rootDir>/src', '<rootDir>/prisma'],
   setupFiles: ['<rootDir>/jest.setup.ts'],
+  // Migrates the shared test-database template exactly once for the whole run, before any
+  // worker starts — see src/lib/testing/testDb.ts for why a per-worker guard isn't enough.
+  globalSetup: '<rootDir>/jest.globalSetup.ts',
+  globalTeardown: '<rootDir>/jest.globalTeardown.ts',
   testMatch: ['**/?(*.)+(spec).[jt]s?(x)'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
@@ -32,10 +36,11 @@ const config = {
     ],
   },
   // node_modules is ignored by default; carve out the ESM-only packages so the transform above
-  // actually reaches them. Only `ai` and `@ai-sdk/*` need it — MiniSearch and the SDK's other
-  // transitive dependencies still publish a CommonJS `require` condition, so adding them here
-  // would cost transform time for nothing.
-  transformIgnorePatterns: ['node_modules/(?!(ai|@ai-sdk)/)'],
+  // actually reaches them. `@workflow/serde` is `ai`'s own transitive dependency (via
+  // @ai-sdk/gateway) — found the hard way when a tool test first imported `ai` and Jest refused
+  // to require() its ESM syntax; MiniSearch and the rest of the chain do publish a CommonJS
+  // `require` condition, so only these two need the carve-out.
+  transformIgnorePatterns: ['node_modules/(?!(ai|@ai-sdk|@workflow)/)'],
   clearMocks: true,
   collectCoverageFrom: ['src/lib/**/*.ts', '!src/lib/**/*.spec.ts'],
 };

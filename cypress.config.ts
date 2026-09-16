@@ -59,6 +59,7 @@ export default defineConfig({
                 channel: true,
                 format: true,
                 unitPriceCents: true,
+                pricingUnit: true,
                 availableVolume: true,
                 minFlightDays: true,
                 maxFlightDays: true,

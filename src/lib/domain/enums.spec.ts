@@ -1,5 +1,5 @@
 import { POLICY_RULES, RATE_CARD } from '../../../prisma/seed-data';
-import { policyDecisionSchema, rateCardChannelSchema } from './enums';
+import { policyDecisionSchema, rateCardChannelSchema, rateCardPricingUnitSchema } from './enums';
 
 /**
  * These enums exist to catch exactly this kind of drift: a value written into seeded data (or,
@@ -26,5 +26,15 @@ describe('domain enums', () => {
 
   it('rejects a value outside the rate-card channel enum', () => {
     expect(rateCardChannelSchema.safeParse('print').success).toBe(false);
+  });
+
+  it('accepts every seeded rate-card pricing unit', () => {
+    for (const pkg of RATE_CARD) {
+      expect(rateCardPricingUnitSchema.safeParse(pkg.pricingUnit).success).toBe(true);
+    }
+  });
+
+  it('rejects a value outside the rate-card pricing unit enum', () => {
+    expect(rateCardPricingUnitSchema.safeParse('PER_IMPRESSION').success).toBe(false);
   });
 });

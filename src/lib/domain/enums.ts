@@ -44,3 +44,11 @@ export type PolicyDecision = z.infer<typeof policyDecisionSchema>;
 export const RATE_CARD_CHANNELS = ['display', 'video', 'audio', 'newsletter'] as const;
 export const rateCardChannelSchema = z.enum(RATE_CARD_CHANNELS);
 export type RateCardChannel = z.infer<typeof rateCardChannelSchema>;
+
+// PER_THOUSAND: unitPriceCents prices 1,000 units of requestedVolume (impressions, plays).
+// PER_UNIT: unitPriceCents prices a single unit (e.g. one newsletter send). Added by
+// add-agent-tools when calculate_quote's arithmetic needed this distinction as data, not a
+// channel-inferred assumption — see that change's design.md.
+export const RATE_CARD_PRICING_UNITS = ['PER_THOUSAND', 'PER_UNIT'] as const;
+export const rateCardPricingUnitSchema = z.enum(RATE_CARD_PRICING_UNITS);
+export type RateCardPricingUnit = z.infer<typeof rateCardPricingUnitSchema>;

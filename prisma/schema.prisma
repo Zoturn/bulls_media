@@ -22,6 +22,7 @@ model RateCardPackage {
   channel         String // display | video | audio | newsletter
   format          String
   unitPriceCents  Int
+  pricingUnit     String // PER_THOUSAND (unitPriceCents per 1,000 requestedVolume) | PER_UNIT (per 1) — added by add-agent-tools
   availableVolume Int
   minFlightDays   Int
   maxFlightDays   Int
