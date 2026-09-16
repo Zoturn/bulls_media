@@ -3,6 +3,7 @@ import type { Tool } from 'ai';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { policyDecisionSchema } from '@/lib/domain/enums';
+import { neutralise } from '@/lib/guardrails/untrusted';
 import { listPolicyRules } from '@/lib/services/policy';
 import { matchPolicy } from './engines/policy';
 import { okSchema } from './schemas';
@@ -48,7 +49,15 @@ export function createCheckAdPolicyTool(
     execute: async (input) => {
       const rules = await listPolicyRules(client);
       const result = matchPolicy(rules, input.vertical);
-      return checkAdPolicyOutputSchema.parse(result);
+      // The rule's description is free text from a database row, and it reaches the model inside
+      // a tool result — the same path `search_rate_card`'s package names take. Policy rows are
+      // seeded today, but "we wrote it" describes the corpus, not the path
+      // (.claude/rules/guardrails-and-injection.md rule 6). It is echoed a second time into the
+      // terminal step by describeRefusal, so neutralising it here covers both.
+      return checkAdPolicyOutputSchema.parse({
+        ...result,
+        data: { ...result.data, description: neutralise(result.data.description) },
+      });
     },
   });
 }

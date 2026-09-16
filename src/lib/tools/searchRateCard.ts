@@ -4,6 +4,7 @@ import type { Tool } from 'ai';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { rateCardChannelSchema } from '@/lib/domain/enums';
+import { neutralise } from '@/lib/guardrails/untrusted';
 import { listRateCardPackages } from '@/lib/services/rateCard';
 import {
   buildRateCardIndex,
@@ -47,7 +48,20 @@ export function createSearchRateCardTool(
         cachedIndex = buildRateCardIndex(packages);
       }
       const result = searchRateCardEngine(cachedIndex, input.query, input.channel);
-      return searchRateCardOutputSchema.parse(result);
+
+      // A rate-card row is a document, and this is the path that turns documents into model
+      // input. "We seeded it ourselves" describes today's corpus, not the path — the rows come
+      // from a database a later change may let someone else write to, and
+      // .claude/rules/guardrails-and-injection.md rule 6 does not exempt them. Only the
+      // free-text fields need it; ids, prices and volumes are not strings a delimiter can hide in.
+      return searchRateCardOutputSchema.parse({
+        ...result,
+        data: result.data.map((pkg) => ({
+          ...pkg,
+          name: neutralise(pkg.name),
+          format: neutralise(pkg.format),
+        })),
+      });
     },
   });
 }

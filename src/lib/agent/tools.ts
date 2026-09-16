@@ -3,8 +3,11 @@ import type { Tool, ToolSet } from 'ai';
 import { tool } from 'ai';
 import type { z } from 'zod';
 import { db } from '@/lib/db';
+import { claimFromSaveCaseInput } from '@/lib/guardrails/claims';
+import { checkPostConditions } from '@/lib/guardrails/postconditions';
 import { saveAssessment } from '@/lib/services/cases';
 import { agentTools, createAgentTools } from '@/lib/tools';
+import type { RecordedToolResult } from './phases';
 import {
   SAVE_CASE_DESCRIPTION,
   saveCaseInputSchema,
@@ -25,8 +28,21 @@ import {
 
 const boundSaveCaseInputSchema = saveCaseInputSchema.omit({ runId: true });
 
+/**
+ * `readHistory` is a function rather than an array because the tool is built once, at the top of
+ * the run, and must see the tool results recorded since — a snapshot taken before the first step
+ * would check every claim against an empty history, which passes everything.
+ *
+ * Its granularity is a model *step*, not an individual call: results are appended in `onStepEnd`,
+ * so a `save_case` executing in the same step as another tool does not see that tool's result.
+ * That is why `save_case` is not in the `TRIAGE` allowlist — see the comment on `PHASE_TOOLS` in
+ * ./phases.ts. Within the later phases the effect is conservative: a claim whose supporting
+ * result landed in the same step is rejected rather than wrongly accepted, and the model is told
+ * why and can call again.
+ */
 export function createRunBoundSaveCaseTool(
   runId: string,
+  readHistory: () => readonly RecordedToolResult[],
   client?: PrismaClient,
 ): Tool<z.infer<typeof boundSaveCaseInputSchema>, z.infer<typeof saveCaseOutputSchema>> {
   return tool({
@@ -34,6 +50,17 @@ export function createRunBoundSaveCaseTool(
     inputSchema: boundSaveCaseInputSchema,
     outputSchema: saveCaseOutputSchema,
     execute: async (input) => {
+      // Checked before the write, not after: a guardrail that runs after the row exists is an
+      // audit. See .claude/rules/guardrails-and-injection.md rule 5.
+      const violations = checkPostConditions(claimFromSaveCaseInput(input), readHistory());
+      if (violations.length > 0) {
+        return saveCaseOutputSchema.parse({
+          ok: false,
+          reason: 'POST_CONDITION_FAILED',
+          violations,
+        });
+      }
+
       const result = await saveAssessment({ ...input, runId }, client);
       return saveCaseOutputSchema.parse(result);
     },
@@ -47,7 +74,11 @@ export function createRunBoundSaveCaseTool(
  * A caller that supplies its own client (every test) gets its own instances against it, which is
  * the isolation it asked for.
  */
-export function buildRunTools(runId: string, client?: PrismaClient): ToolSet {
+export function buildRunTools(
+  runId: string,
+  readHistory: () => readonly RecordedToolResult[],
+  client?: PrismaClient,
+): ToolSet {
   const readTools = client === undefined || client === db ? agentTools : createAgentTools(client);
-  return { ...readTools, save_case: createRunBoundSaveCaseTool(runId, client) };
+  return { ...readTools, save_case: createRunBoundSaveCaseTool(runId, readHistory, client) };
 }

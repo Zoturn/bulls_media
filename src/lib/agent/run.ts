@@ -7,7 +7,14 @@ import { forRun } from '@/lib/observability/logger';
 import type { TerminalRunStatus } from '@/lib/domain/enums';
 import { getCaseForRun } from '@/lib/services/cases';
 import { closeRun, createRun, recordStep, type RecordStepInput } from '@/lib/services/runs';
-import { assessmentSchema, dispositionToRunStatus, type Assessment } from './assessment';
+import { claimFromAssessment } from '@/lib/guardrails/claims';
+import {
+  checkPostConditions,
+  describeViolations,
+  type PostConditionViolation,
+} from '@/lib/guardrails/postconditions';
+import { describeRefusal, enforcedStatusFor, refusalEvidence } from '@/lib/guardrails/refusal';
+import { assessmentSchema, type Assessment } from './assessment';
 import { activeToolsFor, phaseFor, type AgentPhase, type RecordedToolResult } from './phases';
 import { PROMPT_VERSION, renderUntrusted, SYSTEM_PROMPT } from './prompt';
 import { buildRunTools } from './tools';
@@ -41,6 +48,8 @@ export interface ExecuteRunResult {
   assessment?: Assessment;
   /** Present only when the run failed; the reason, in the same words recorded on the run. */
   error?: string;
+  /** Every post-condition the structured answer failed. Empty on a run whose claims held up. */
+  violations: PostConditionViolation[];
 }
 
 function errorMessageOf(error: unknown): string {
@@ -129,7 +138,7 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
         output: toJson(result.output),
         durationMs: Math.round(step.performance.toolExecutionMs[result.toolCallId] ?? 0),
       });
-      history.push({ toolName: result.toolName, output: result.output });
+      history.push({ toolName: result.toolName, input: result.input, output: result.output });
     }
 
     // A call the phase allowlist refused never produces a result — it surfaces here, as a content
@@ -153,13 +162,14 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
   let assessment: Assessment | undefined;
   let failure: string | undefined;
   let totalTokens: number | undefined;
+  let violations: PostConditionViolation[] = [];
 
   try {
     const result = await generateText({
       model: deps.model,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: renderUntrusted(subject.inboundMessage) }],
-      tools: buildRunTools(runId, client),
+      tools: buildRunTools(runId, () => history, client),
       temperature: 0,
       stopWhen: isStepCount(maxSteps),
       timeout: { totalMs: timeoutMs },
@@ -186,8 +196,11 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
     totalTokens = result.totalUsage.totalTokens;
 
     try {
+      // Only `result.output` is guarded here: its getter is what throws when the model produced
+      // no parseable answer, and the handler below is written for exactly that. Checking the
+      // post-conditions inside this block too would let an unrelated throw be reported as
+      // "no valid structured result", which is not what happened.
       assessment = result.output;
-      status = dispositionToRunStatus(assessment.outcome.disposition);
     } catch (error) {
       // `output` throws when the model never produced a parseable structured answer. Whether that
       // is "it ran out of room" or "it answered in prose" changes what a reviewer should do next,
@@ -201,29 +214,64 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
     failure = errorMessageOf(error);
   }
 
-  // Every path lands here, including a thrown tool. `status` starts as FAILED, so a run that
-  // never reached a disposition is closed as one rather than left RUNNING.
-  //
-  // The step writes are drained first so that a trace which failed to record is known about
-  // before the terminal row and the run status are written: a run whose steps are missing did not
-  // succeed, whatever the model went on to answer.
-  await writes;
-  if (writeFailure !== undefined) {
-    status = 'FAILED';
-    failure ??= writeFailure;
+  // Checked out here rather than beside the parse: a contradicted answer is not a parse failure,
+  // and reporting it as one would send a reviewer looking in the wrong place.
+  if (assessment !== undefined) {
+    violations = checkPostConditions(claimFromAssessment(assessment), history);
+    if (violations.length > 0) failure = describeViolations(violations);
   }
 
+  // Every path lands here, including a thrown tool. The status is settled in one place, in a
+  // fixed order of precedence, so there is one answer to "why is this run in this state":
+  //
+  //   1. the trace could not be written  → FAILED   (nothing here can be vouched for)
+  //   2. policy refused                  → REFUSED  (rule 4: code decides, not the model)
+  //   3. anything went wrong             → FAILED   (rule 7: fail closed)
+  //   4. otherwise                       → whatever the disposition maps to
+  //
+  // 2 sits above 3 deliberately. A refused enquiry whose model then burned its step budget has
+  // still been refused; closing it FAILED would present a settled policy decision as an
+  // infrastructure problem for somebody to retry. The failure is not lost — it stays in
+  // `errorMessage` and in the terminal step alongside the refusal.
+  //
+  // The guard below tests the *evidence*, not the resulting status. Those differ: a model can
+  // claim `REFUSED` with nothing on record backing it, and `enforcedStatusFor` maps that claim to
+  // `REFUSED` too. Testing the status would let a model-authored refusal skip the fail-closed
+  // step and record a violated run as though policy had settled it.
+  const refusal = refusalEvidence(history);
+  status = enforcedStatusFor(history, assessment?.outcome.disposition);
+  if (refusal === undefined && failure !== undefined) status = 'FAILED';
+
+  // Drained here so a trace that failed to record is known about before the run is closed.
+  await writes;
+
+  // The terminal row is what an operator reads first, so it carries the evidence rather than a
+  // bare status: which checks failed, and — when the run was refused — which rule refused it and
+  // about what (.claude/rules/guardrails-and-injection.md rule 10; an unexplained refusal gets
+  // overridden by the first person in a hurry).
   write({
     type: 'TERMINAL',
-    output: toJson(
-      assessment === undefined
-        ? { status, phase: lastPhase }
-        : { status, phase: lastPhase, disposition: assessment.outcome.disposition },
-    ),
+    output: toJson({
+      status,
+      phase: lastPhase,
+      ...(assessment !== undefined && { disposition: assessment.outcome.disposition }),
+      ...(refusal !== undefined && { refusal, refusalSummary: describeRefusal(refusal) }),
+      ...(violations.length > 0 && { violations }),
+    }),
     error: failure,
     durationMs: 0,
   });
   await writes;
+
+  // Checked after the terminal row, not before it: a run whose trace is incomplete cannot be
+  // vouched for, and the terminal row is the one an operator reads first — so its own failure to
+  // write has to count too. `failure` is appended to rather than defaulted into, because a run
+  // can both violate a post-condition and lose its trace, and an operator reading only the
+  // violations would open a trace with a step silently missing from it.
+  if (writeFailure !== undefined) {
+    status = 'FAILED';
+    failure = failure === undefined ? writeFailure : `${failure}; ${writeFailure}`;
+  }
 
   const closed = await closeRun({ runId, status, totalTokens, errorMessage: failure }, client);
   if (!closed.ok) {
@@ -231,5 +279,5 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
   }
   log.info({ status, totalTokens }, 'run finished');
 
-  return { runId, status, assessment, error: failure };
+  return { runId, status, assessment, error: failure, violations };
 }

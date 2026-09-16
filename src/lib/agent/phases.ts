@@ -29,14 +29,23 @@ export type AgentPhase = (typeof AGENT_PHASES)[number];
 export type AgentToolName = keyof typeof import('@/lib/tools').agentTools & string;
 
 /**
- * `save_case` is in every phase deliberately. The gate worth enforcing is "nothing is priced
- * before policy is known"; "nothing is recorded early" is not, and without a way out a run that
- * cannot find inventory would sit in RESEARCH until its step budget ran out instead of recording
- * NEEDS_INFO and stopping. Writing an assessment is terminal and single-shot — `Assessment.runId`
- * is unique — so an early save ends the run rather than corrupting it.
+ * `save_case` is in every phase EXCEPT `TRIAGE`, and the exception is load-bearing.
+ *
+ * It is in the later phases so that a run which cannot find inventory can still record
+ * `NEEDS_INFO` and stop, rather than sitting in `RESEARCH` until its step budget runs out. The
+ * gate worth enforcing is "nothing is priced before policy is known", not "nothing is recorded
+ * early", and an early save is terminal and single-shot — `Assessment.runId` is unique.
+ *
+ * It is NOT in `TRIAGE` because the post-conditions that guard the write read the tool results
+ * recorded so far, and those are appended when a model *step* ends — so a `save_case` executing
+ * in the same step as (or before) `check_ad_policy` is checked against a history that does not
+ * yet contain the policy decision. Keeping it out of `TRIAGE` means a save can only happen in a
+ * phase the policy result already moved the run into, so the decision is always on record by the
+ * time a claim is checked against it. Without this, a model could write an assessment before any
+ * policy decision existed and nothing would contradict it.
  */
 const PHASE_TOOLS = {
-  TRIAGE: ['check_ad_policy', 'save_case'],
+  TRIAGE: ['check_ad_policy'],
   RESEARCH: ['search_rate_card', 'lookup_inventory', 'save_case'],
   PRICING: ['calculate_quote', 'save_case'],
   PERSIST: ['save_case'],
@@ -46,9 +55,14 @@ export function activeToolsFor(phase: AgentPhase): AgentToolName[] {
   return [...PHASE_TOOLS[phase]];
 }
 
-/** One tool result as the orchestrator recorded it. `output` is whatever the tool returned. */
+/**
+ * One tool call as the orchestrator recorded it: what it was asked and what it returned, both
+ * unvalidated. `input` matters as much as `output` to the guardrails — "which vertical was policy
+ * actually asked about" is a question only the input answers.
+ */
 export interface RecordedToolResult {
   toolName: string;
+  input: unknown;
   output: unknown;
 }
 

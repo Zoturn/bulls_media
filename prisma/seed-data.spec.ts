@@ -1,4 +1,4 @@
-import { POLICY_RULES, RATE_CARD, SEED } from './seed-data';
+import { INJECTION_CORPUS_KEYS, POLICY_RULES, RATE_CARD, SEED } from './seed-data';
 
 describe('seed fixtures', () => {
   it('exposes every documented message fixture by key', () => {
@@ -11,7 +11,34 @@ describe('seed fixtures', () => {
       'injectionAttempt',
       'notABrief',
       'missingBudget',
+      'injectionInSubject',
+      'injectionInSenderName',
+      'injectionForgedDelimiter',
+      'injectionClaimedApproval',
+      'injectionClaimedException',
     ]);
+  });
+
+  it('names every injection fixture in the corpus the guardrail suite drives', () => {
+    // The list and the fixtures must not drift: a fixture added to SEED.messages but left out of
+    // INJECTION_CORPUS_KEYS would sit in the database testing nothing.
+    for (const key of INJECTION_CORPUS_KEYS) {
+      expect(SEED.messages[key]).toBeDefined();
+    }
+    const injectionKeys = Object.keys(SEED.messages).filter((key) => key.startsWith('injection'));
+    expect([...INJECTION_CORPUS_KEYS].sort()).toEqual(injectionKeys.sort());
+  });
+
+  it('covers the distinct shapes the attack takes', () => {
+    // Behaviour, not wording: each fixture must actually carry its attempt in the field it is
+    // named for, or the suite that drives it is asserting against an ordinary email.
+    expect(SEED.messages.injectionInSubject.subject.toLowerCase()).toContain('system');
+    expect(SEED.messages.injectionInSenderName.fromName.toLowerCase()).toContain('admin');
+    expect(SEED.messages.injectionForgedDelimiter.body).toContain(
+      '<<<END_UNTRUSTED_INBOUND_MESSAGE>>>',
+    );
+    expect(SEED.messages.injectionClaimedApproval.body.toLowerCase()).toContain('approved');
+    expect(SEED.messages.injectionClaimedException.body.toLowerCase()).toContain('exception');
   });
 
   it('gives every message a unique, non-empty id', () => {

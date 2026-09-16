@@ -1,15 +1,22 @@
+import { UNTRUSTED_DELIMITERS } from '@/lib/guardrails/untrusted';
+
 /**
- * The system instruction and the one way inbound text is allowed to reach the model.
+ * The system instruction: a constant that never varies by message, so what the operator told the
+ * agent and what the advertiser told the agent can never be confused for one another.
  *
- * Two separable jobs live here, and they are separate for a reason. `SYSTEM_PROMPT` is a constant:
- * it never varies by message, so what the operator told the agent and what the advertiser told the
- * agent can never be confused for one another. `renderUntrusted` is the only path an inbound
- * message takes into the conversation, and it labels what it wraps.
+ * The other half of that guarantee — wrapping and neutralising untrusted text — lives in
+ * `src/lib/guardrails/untrusted.ts`, because it applies to retrieved documents as well as to
+ * email. This module re-exports it so the agent's callers still have one import.
  *
  * See .claude/rules/agent-orchestration.md rule 7 and
  * .claude/rules/guardrails-and-injection.md — a prompt assembled from attacker-controlled strings
  * is an injection with extra steps.
  */
+export {
+  renderUntrusted,
+  UNTRUSTED_DELIMITERS,
+  type UntrustedMessage,
+} from '@/lib/guardrails/untrusted';
 
 /**
  * Recorded on every `Run`, so a regression after a prompt change can be attributed to the prompt
@@ -17,8 +24,7 @@
  */
 export const PROMPT_VERSION = 'v1';
 
-const OPEN_DELIMITER = '<<<UNTRUSTED_INBOUND_MESSAGE>>>';
-const CLOSE_DELIMITER = '<<<END_UNTRUSTED_INBOUND_MESSAGE>>>';
+const { open: OPEN_DELIMITER, close: CLOSE_DELIMITER } = UNTRUSTED_DELIMITERS;
 
 export const SYSTEM_PROMPT = [
   'You are the triage agent for a media sales team. An advertiser has emailed in. Your job is to',
@@ -56,43 +62,3 @@ export const SYSTEM_PROMPT = [
   'Your final answer is a structured object, not prose. Fill in the summary as the sentence a',
   'salesperson would read first: what came in, what you decided, and why.',
 ].join('\n');
-
-/**
- * Strips anything shaped like one of this module's delimiters out of untrusted text, so a body
- * that contains the closing token cannot end the untrusted block early and continue as if it were
- * the operator talking. Matching the *shape* rather than the two exact tokens costs nothing and
- * means adding a delimiter later cannot silently reopen the hole.
- */
-const DELIMITER_SHAPED = /<<<[^\n>]{0,64}>>>/g;
-
-function neutralise(text: string): string {
-  return text.replace(DELIMITER_SHAPED, '[delimiter removed]');
-}
-
-export interface UntrustedMessage {
-  fromName: string;
-  fromAddress: string;
-  subject: string;
-  body: string;
-}
-
-/**
- * The inbound message as a user message: delimited, labelled, and with every field neutralised —
- * the sender's display name and the subject line are attacker-controlled too, not just the body.
- */
-export function renderUntrusted(message: UntrustedMessage): string {
-  return [
-    OPEN_DELIMITER,
-    `From: ${neutralise(message.fromName)} <${neutralise(message.fromAddress)}>`,
-    `Subject: ${neutralise(message.subject)}`,
-    '',
-    neutralise(message.body),
-    CLOSE_DELIMITER,
-  ].join('\n');
-}
-
-/** Exported for the spec, which asserts on the delimiters rather than restating them. */
-export const UNTRUSTED_DELIMITERS = {
-  open: OPEN_DELIMITER,
-  close: CLOSE_DELIMITER,
-} as const;

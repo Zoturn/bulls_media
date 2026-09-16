@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { SEED } from '../../../prisma/seed-data';
 import { scriptedModel, toolsOfferedAt } from '@/lib/testing/mockModel';
 import { createTestDb, type TestDb } from '@/lib/testing/testDb';
@@ -21,7 +22,6 @@ let testDb: TestDb;
 const BRIEF = SEED.messages.ordinaryBrief;
 const CASINO = SEED.messages.prohibitedVertical;
 const CRYPTO = SEED.messages.reviewVertical;
-const INJECTION = SEED.messages.injectionAttempt;
 
 const briefFor = (advertiser: string, vertical: string) => ({
   advertiser,
@@ -65,9 +65,9 @@ describe('executeRun — the ordinary path', () => {
         brief: briefFor('North Road Autos', 'automotive'),
         quote: {
           lineItems: [
-            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 7_600_000 },
+            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 800_000 },
           ],
-          totalCents: 7_600_000,
+          totalCents: 800_000,
         },
         draftReply: 'Hi Priya — here are the packages we can offer.',
       },
@@ -91,7 +91,7 @@ describe('executeRun — the ordinary path', () => {
             disposition: 'QUOTED',
             summary: answer.summary,
             structured: JSON.stringify(answer),
-            quoteCents: 7_600_000,
+            quoteCents: 800_000,
             draftReply: 'Hi Priya — here are the packages we can offer.',
           },
         },
@@ -106,7 +106,7 @@ describe('executeRun — the ordinary path', () => {
 
     const saved = await testDb.prisma.assessment.findUnique({ where: { runId: result.runId } });
     expect(saved?.disposition).toBe('QUOTED');
-    expect(saved?.quoteCents).toBe(7_600_000);
+    expect(saved?.quoteCents).toBe(800_000);
   });
 
   it('offers only the current phase tools, widening as results come in', async () => {
@@ -118,9 +118,9 @@ describe('executeRun — the ordinary path', () => {
         brief: briefFor('North Road Autos', 'automotive'),
         quote: {
           lineItems: [
-            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 7_600_000 },
+            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 800_000 },
           ],
-          totalCents: 7_600_000,
+          totalCents: 800_000,
         },
         draftReply: 'Draft.',
       },
@@ -143,7 +143,7 @@ describe('executeRun — the ordinary path', () => {
 
     await executeRun(caseId, { model, client: testDb.prisma });
 
-    expect(toolsOfferedAt(model, 0)).toEqual(['check_ad_policy', 'save_case']);
+    expect(toolsOfferedAt(model, 0)).toEqual(['check_ad_policy']);
     expect(toolsOfferedAt(model, 1)).toEqual(['lookup_inventory', 'save_case', 'search_rate_card']);
     expect(toolsOfferedAt(model, 2)).toEqual(['calculate_quote', 'save_case']);
     expect(toolsOfferedAt(model, 3)).toEqual(['save_case']);
@@ -339,6 +339,299 @@ describe('executeRun — a model that does not cooperate', () => {
   });
 });
 
+describe('executeRun — code has the last word over the model', () => {
+  it('refuses a run the policy refused, whatever disposition the model returns', async () => {
+    const caseId = await openCase(CASINO.id);
+    // The model ignores the REFUSE and quotes anyway, with a total it invented.
+    const answer = {
+      summary: 'Priced the casino campaign.',
+      outcome: {
+        disposition: 'QUOTED',
+        brief: briefFor('LuckySpin', 'gambling'),
+        quote: {
+          lineItems: [
+            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 800_000 },
+          ],
+          totalCents: 800_000,
+        },
+        draftReply: 'Happy to book this in.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'gambling' } }, { answer }],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+
+    // The status answers "what happened to this enquiry" …
+    expect(result.status).toBe('REFUSED');
+    // … and the violations answer "what did the agent get wrong". An operator needs both.
+    expect(result.violations.map((violation) => violation.check)).toEqual(
+      expect.arrayContaining(['QUOTE_HAS_A_CALCULATION', 'DISPOSITION_MATCHES_POLICY']),
+    );
+
+    expect(await testDb.prisma.assessment.count({ where: { runId: result.runId } })).toBe(0);
+    const run = await testDb.prisma.run.findUnique({ where: { id: result.runId } });
+    expect(run?.status).toBe('REFUSED');
+  });
+
+  it('records which rule refused and about what, not merely that a refusal happened', async () => {
+    const caseId = await openCase(CASINO.id);
+    const answer = {
+      summary: 'Gambling is not accepted.',
+      outcome: {
+        disposition: 'REFUSED',
+        brief: briefFor('LuckySpin', 'gambling'),
+        refusalReason: 'Gambling is not accepted on this network.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'gambling' } }, { answer }],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+    expect(result.status).toBe('REFUSED');
+    expect(result.violations).toEqual([]);
+
+    const steps = await listRunSteps(result.runId, testDb.prisma);
+    const terminal = steps.find((step) => step.type === 'TERMINAL');
+    const recorded = JSON.parse(terminal?.output ?? '{}') as {
+      refusal?: { ruleId: string; vertical: string };
+    };
+    expect(recorded.refusal?.ruleId).toBe('policy-gambling');
+    expect(recorded.refusal?.vertical).toBe('gambling');
+  });
+
+  it('fails a run whose answer the tool results contradict', async () => {
+    const caseId = await openCase(BRIEF.id);
+    // Policy allows and a quote really was calculated — but the answer reports a different total.
+    const answer = {
+      summary: 'Priced.',
+      outcome: {
+        disposition: 'QUOTED',
+        brief: briefFor('North Road Autos', 'automotive'),
+        quote: {
+          lineItems: [
+            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 999_999 },
+          ],
+          totalCents: 999_999,
+        },
+        draftReply: 'Draft.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [
+        { call: 'check_ad_policy', input: { vertical: 'automotive' } },
+        {
+          call: 'lookup_inventory',
+          input: { packageId: 'rate-display-ros', requestedVolume: 1_000_000 },
+        },
+        {
+          call: 'calculate_quote',
+          input: { lineItems: [{ packageId: 'rate-display-ros', requestedVolume: 1_000_000 }] },
+        },
+        { answer },
+      ],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+
+    expect(result.status).toBe('FAILED');
+    expect(result.violations.map((violation) => violation.check)).toContain(
+      'QUOTE_TOTAL_MATCHES_CALCULATION',
+    );
+    // The recorded reason names both numbers, so an operator does not have to diff the trace.
+    expect(result.error).toContain('999999');
+    expect(result.error).toContain('800000');
+  });
+
+  it('fails a run reporting a vertical that was never assessed', async () => {
+    const caseId = await openCase(BRIEF.id);
+    const contradictory = {
+      summary: 'Priced.',
+      outcome: {
+        disposition: 'NEEDS_REVIEW',
+        // policy was asked about 'automotive'; the assessment reports something else entirely
+        brief: briefFor('North Road Autos', 'pharmaceuticals'),
+        reviewReason: 'Needs a second look.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [
+        { call: 'check_ad_policy', input: { vertical: 'automotive' } },
+        { answer: contradictory },
+      ],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+
+    expect(result.status).toBe('FAILED');
+    expect(result.violations.map((violation) => violation.check)).toContain(
+      'VERTICAL_WAS_ASSESSED',
+    );
+  });
+
+  it('still refuses when the refused run then exhausts its budget', async () => {
+    const caseId = await openCase(CASINO.id);
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'gambling' } }],
+      repeatLast: true,
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma, maxSteps: 3 });
+
+    // The enquiry was refused; the run also failed to finish. The status reports the first, the
+    // error the second, so an operator does not retry a settled policy decision.
+    expect(result.status).toBe('REFUSED');
+    expect(result.error).toMatch(/budget exhausted/i);
+  });
+
+  it('fails a refused run whose trace could not be written, since nothing can be vouched for', async () => {
+    const caseId = await openCase(CASINO.id);
+    const answer = {
+      summary: 'Refused.',
+      outcome: {
+        disposition: 'REFUSED',
+        brief: null,
+        refusalReason: 'Gambling is not accepted.',
+      },
+    } satisfies Assessment;
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'gambling' } }, { answer }],
+    });
+
+    const failingClient = new Proxy(testDb.prisma, {
+      get(target, property, receiver) {
+        if (property === 'runStep') {
+          return { create: () => Promise.reject(new Error('disk is full')) };
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    });
+
+    const result = await executeRun(caseId, { model, client: failingClient });
+    expect(result.status).toBe('FAILED');
+  });
+
+  it('fails a refusal the model asserted but no policy decision supports', async () => {
+    // REFUSED can arrive two ways: the policy engine refused, or the model simply said so. Only
+    // the first is a refusal. A guard that tested the resulting status rather than the evidence
+    // would let the second skip the fail-closed step and be recorded as though policy had settled
+    // it — an unbacked refusal, indistinguishable in the run row from an enforced one.
+    const caseId = await openCase(BRIEF.id);
+    const answer = {
+      summary: 'Refusing this one.',
+      outcome: {
+        disposition: 'REFUSED',
+        brief: briefFor('North Road Autos', 'gambling'), // policy was asked about automotive
+        refusalReason: 'I decided not to.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'automotive' } }, { answer }],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+
+    expect(result.status).toBe('FAILED');
+    expect(result.violations.map((violation) => violation.check)).toContain(
+      'VERTICAL_WAS_ASSESSED',
+    );
+  });
+
+  it('fails when the terminal row itself cannot be written', async () => {
+    // Precedence rule 1 has to cover the terminal row too — it is the row an operator reads
+    // first, so a run that lost it cannot be vouched for either.
+    const caseId = await openCase(BRIEF.id);
+    const answer = {
+      summary: 'Not a brief.',
+      outcome: { disposition: 'NOT_A_BRIEF' },
+    } satisfies Assessment;
+    const model = scriptedModel({ steps: [{ answer }] });
+
+    let calls = 0;
+    const failsOnTerminalWrite = new Proxy(testDb.prisma, {
+      get(target, property, receiver) {
+        if (property !== 'runStep') return Reflect.get(target, property, receiver) as unknown;
+        return {
+          create: (args: Prisma.RunStepCreateArgs) => {
+            calls += 1;
+            return args.data.type === 'TERMINAL'
+              ? Promise.reject(new Error('disk is full'))
+              : testDb.prisma.runStep.create(args);
+          },
+        };
+      },
+    });
+
+    const result = await executeRun(caseId, { model, client: failsOnTerminalWrite });
+
+    expect(calls).toBeGreaterThan(0);
+    expect(result.status).toBe('FAILED');
+    expect(result.error).toMatch(/Failed to record step/);
+  });
+
+  it('records both a post-condition failure and a lost trace, not just the first', async () => {
+    const caseId = await openCase(BRIEF.id);
+    const answer = {
+      summary: 'Priced.',
+      outcome: {
+        disposition: 'QUOTED',
+        brief: briefFor('North Road Autos', 'automotive'),
+        quote: {
+          lineItems: [
+            { packageId: 'rate-display-ros', requestedVolume: 1_000_000, totalCents: 999_999 },
+          ],
+          totalCents: 999_999,
+        },
+        draftReply: 'Draft.',
+      },
+    } satisfies Assessment;
+    const model = scriptedModel({ steps: [{ answer }] });
+
+    const failingClient = new Proxy(testDb.prisma, {
+      get(target, property, receiver) {
+        if (property === 'runStep') {
+          return { create: () => Promise.reject(new Error('disk is full')) };
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    });
+
+    const result = await executeRun(caseId, { model, client: failingClient });
+
+    expect(result.status).toBe('FAILED');
+    // An operator told only about the violations would open a trace with steps silently missing.
+    expect(result.error).toMatch(/QUOTE_HAS_A_CALCULATION/);
+    expect(result.error).toMatch(/Failed to record step/);
+  });
+
+  it('leaves a clean run alone', async () => {
+    const caseId = await openCase(CRYPTO.id);
+    const answer = {
+      summary: 'Crypto exchange: compliance review needed.',
+      outcome: {
+        disposition: 'NEEDS_REVIEW',
+        brief: { ...briefFor('CoinWave', 'cryptocurrency'), channel: 'video' as const },
+        reviewReason: 'Cryptocurrency offers require legal review.',
+      },
+    } satisfies Assessment;
+
+    const model = scriptedModel({
+      steps: [{ call: 'check_ad_policy', input: { vertical: 'cryptocurrency' } }, { answer }],
+    });
+
+    const result = await executeRun(caseId, { model, client: testDb.prisma });
+    expect(result.status).toBe('NEEDS_HUMAN');
+    expect(result.violations).toEqual([]);
+  });
+});
+
 describe('executeRun — when the trace itself cannot be written', () => {
   it('closes the run FAILED rather than throwing and leaving it RUNNING', async () => {
     const caseId = await openCase(BRIEF.id);
@@ -369,31 +662,6 @@ describe('executeRun — when the trace itself cannot be written', () => {
     const run = await testDb.prisma.run.findUnique({ where: { id: result.runId } });
     expect(run?.status).toBe('FAILED');
     expect(run?.finishedAt).not.toBeNull();
-  });
-});
-
-describe('executeRun — an inbound message that argues with the agent', () => {
-  it('runs the injection fixture through the same phase gate as any other message', async () => {
-    const caseId = await openCase(INJECTION.id);
-    const model = scriptedModel({
-      steps: [
-        // The model does what the email told it to: skip policy and go straight to a discount.
-        {
-          call: 'calculate_quote',
-          input: { lineItems: [{ packageId: 'rate-display-homepage', requestedVolume: 200_000 }] },
-        },
-        { call: 'check_ad_policy', input: { vertical: 'general' } },
-      ],
-      repeatLast: true,
-    });
-
-    const result = await executeRun(caseId, { model, client: testDb.prisma, maxSteps: 3 });
-
-    expect(toolsOfferedAt(model, 0)).toEqual(['check_ad_policy', 'save_case']);
-    const steps = await listRunSteps(result.runId, testDb.prisma);
-    const quote = steps.find((step) => step.toolName === 'calculate_quote');
-    expect(quote?.error).not.toBeNull();
-    expect(quote?.output).toBeNull();
   });
 });
 
