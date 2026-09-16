@@ -9,31 +9,39 @@ import type { AssessmentDisposition } from '@/lib/domain/enums';
  * `create`) rather than a `findUnique` check first — a check-then-act race with no benefit here.
  */
 
+export type OpenCaseResult =
+  { ok: true; data: { id: string } } | { ok: false; reason: 'MESSAGE_NOT_FOUND' };
+
 /**
  * The seed creates inbound messages but no cases — a case is opened when somebody decides to work
  * a message, which is an operator action, not a fact about the mailbox. Idempotent by way of
  * `Case.inboundMessageId`'s unique index, so opening the same message twice returns the case that
  * already exists rather than failing or creating a second one.
+ *
+ * A discriminated result rather than a throw for the not-found case: it is the caller's (an HTTP
+ * handler's) job to decide what a missing message means to its client, not this function's, and
+ * every other expected outcome in this module is already this shape.
  */
 export async function openCaseForMessage(
   inboundMessageId: string,
   client: PrismaClient = db,
-): Promise<{ id: string }> {
+): Promise<OpenCaseResult> {
   try {
     // `upsert` with an empty `update`, not read-then-create: the uniqueness that makes this
     // idempotent is the database's, so it is the database that should enforce it in one statement
     // — the same reasoning the header above gives for `saveAssessment`. A read-then-create would
     // also need a second read to recover from losing the race it opens.
-    return await client.case.upsert({
+    const result = await client.case.upsert({
       where: { inboundMessageId },
       update: {},
       create: { inboundMessageId },
       select: { id: true },
     });
+    return { ok: true, data: result };
   } catch (error) {
     // P2003: the foreign key has nothing to point at, i.e. there is no such inbound message.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-      throw new Error(`openCaseForMessage: no inbound message ${inboundMessageId}`);
+      return { ok: false, reason: 'MESSAGE_NOT_FOUND' };
     }
     throw error;
   }

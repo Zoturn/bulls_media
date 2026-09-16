@@ -2,8 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { SEED } from '../../../prisma/seed-data';
 import { scriptedModel, toolsOfferedAt } from '@/lib/testing/mockModel';
 import { createTestDb, type TestDb } from '@/lib/testing/testDb';
-import { seedAll } from '@/lib/testing/testFixtures';
-import { openCaseForMessage } from '@/lib/services/cases';
+import { openCaseOrThrow, seedAll } from '@/lib/testing/testFixtures';
 import { listRunSteps } from '@/lib/services/runs';
 import { executeRun } from './run';
 import type { Assessment } from './assessment';
@@ -50,9 +49,8 @@ afterAll(async () => {
   await testDb.cleanup();
 });
 
-async function openCase(messageId: string): Promise<string> {
-  const { id } = await openCaseForMessage(messageId, testDb.prisma);
-  return id;
+function openCase(messageId: string): Promise<string> {
+  return openCaseOrThrow(testDb.prisma, messageId);
 }
 
 describe('executeRun — the ordinary path', () => {
@@ -662,6 +660,69 @@ describe('executeRun — when the trace itself cannot be written', () => {
     const run = await testDb.prisma.run.findUnique({ where: { id: result.runId } });
     expect(run?.status).toBe('FAILED');
     expect(run?.finishedAt).not.toBeNull();
+  });
+});
+
+describe('executeRun — onRunStarted', () => {
+  it('fires once, synchronously with createRun, before the model is ever called', async () => {
+    const caseId = await openCase(BRIEF.id);
+    const answer = {
+      summary: 'Not a brief.',
+      outcome: { disposition: 'NOT_A_BRIEF' },
+    } satisfies Assessment;
+    const model = scriptedModel({ steps: [{ answer }] });
+
+    const seen: string[] = [];
+    const result = await executeRun(caseId, {
+      model,
+      client: testDb.prisma,
+      onRunStarted: (runId) => {
+        seen.push(runId);
+        // The model has not been called yet: this fires before generateText's first step.
+        expect(model.doGenerateCalls).toHaveLength(0);
+      },
+    });
+
+    expect(seen).toEqual([result.runId]);
+  });
+
+  it('does not fire twice, even on a run that fails', async () => {
+    const caseId = await openCase(BRIEF.id);
+    const model = scriptedModel({ steps: [{ text: 'not json' }] });
+    let calls = 0;
+
+    await executeRun(caseId, {
+      model,
+      client: testDb.prisma,
+      onRunStarted: () => {
+        calls += 1;
+      },
+    });
+
+    expect(calls).toBe(1);
+  });
+});
+
+describe('executeRun — caseForRun', () => {
+  it('uses a pre-fetched case instead of querying for it again', async () => {
+    const caseId = await openCase(BRIEF.id);
+    const caseForRun = { id: caseId, inboundMessage: BRIEF };
+    const answer = {
+      summary: 'Not a brief.',
+      outcome: { disposition: 'NOT_A_BRIEF' },
+    } satisfies Assessment;
+    const model = scriptedModel({ steps: [{ answer }] });
+
+    const noCaseReads = new Proxy(testDb.prisma, {
+      get(target, prop, receiver) {
+        if (prop === 'case') throw new Error('executeRun queried the case despite caseForRun');
+        return Reflect.get(target, prop, receiver) as unknown;
+      },
+    });
+
+    const result = await executeRun(caseId, { model, client: noCaseReads, caseForRun });
+
+    expect(result.status).toBe('COMPLETED');
   });
 });
 

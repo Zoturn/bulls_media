@@ -90,12 +90,29 @@ export async function closeRun(
 }
 
 /**
+ * The one run a case can have `RUNNING` at a time — `startRun` reads this to decide whether a new
+ * one may begin (.claude/rules/api-and-validation.md rule 6: two runs racing on one case produce
+ * two contradictory assessments and no way to tell which was approved).
+ */
+export async function findActiveRunForCase(
+  caseId: string,
+  client: PrismaClient = db,
+): Promise<{ id: string } | null> {
+  return client.run.findFirst({
+    where: { caseId, status: 'RUNNING' },
+    select: { id: true },
+  });
+}
+
+/**
  * The columns a trace reader gets. Kept as an explicit `select` per .claude/rules/data-model.md
  * rule 8 — a column added to `RunStep` later must be added here deliberately rather than leaking
  * into an API response by default — but declared once here and inferred, not restated as a
- * hand-written interface that could drift from the query beside it.
+ * hand-written interface that could drift from the query beside it. Exported so
+ * `src/lib/services/consoleReads.ts`'s nested `select` reuses the same field list rather than
+ * restating it a third time.
  */
-const RUN_STEP_FIELDS = {
+export const RUN_STEP_FIELDS = {
   id: true,
   index: true,
   type: true,

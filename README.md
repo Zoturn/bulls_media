@@ -3,10 +3,10 @@
 An AI agent that triages inbound advertising enquiries for a media sales team, and stops for a
 human before anything leaves the building.
 
-> **Status:** foundation and the five tools are built and individually tested; nothing calls them
-> yet — no orchestrator, no run loop, no refusal enforcement. The table in
-> [Implementation status](#implementation-status) says exactly what is built so far. This README
-> describes the system as specified, and marks anything not yet implemented.
+> **Status:** the agent — orchestrator, tools, guardrails — and the operator console that runs and
+> approves it are built and tested end to end. The table in
+> [Implementation status](#implementation-status) says exactly what is built so far. Worked
+> examples and a final documentation pass are still to come with `add-docs-and-verification`.
 
 ## Problem statement
 
@@ -101,6 +101,19 @@ Three properties do the real work:
 Detail, and the alternatives rejected along the way, is in
 [`openspec/changes/add-project-foundation/design.md`](openspec/changes/add-project-foundation/design.md).
 
+## The operator console
+
+`/console` lists every inbound message and whether a case has been opened for it. Opening one and
+starting triage shows the run's steps as they complete, the structured assessment and drafted
+reply once it finishes, and — for anything with a disposition a human should sign off on — an
+approval panel that records who decided and how, then resolves the case. Nothing is sent anywhere
+on approval; the decision is the only side effect.
+
+Stated boundaries, not oversights: there is no authentication, so `decidedBy` is a name an operator
+types rather than an identity the system checks; a case shows only its **latest** run even though
+every run it has ever had is kept in the database; and, per the project's scope, nothing here sends
+email or writes to a real CRM.
+
 ## Setup
 
 Requires Node 22+. No Docker, no database server.
@@ -132,21 +145,20 @@ npm test                          # Jest — runs offline, no API key required
 npm run db:reset && npm run e2e   # Cypress against a freshly seeded database
 ```
 
-All four run today. Beyond `add-project-foundation`'s schema, seed, config, logger and health
-endpoint, the suite now covers all five tools (`check_ad_policy`, `search_rate_card`,
-`lookup_inventory`, `calculate_quote`, `save_case`) and their deterministic engines — each tested
-both as a pure function against fixture data and, for anything touching the database, against a
-real disposable SQLite database (`src/lib/testing/testDb.ts`) rather than a mock. There is still
-no agent, so there is nothing agent-shaped to verify manually beyond calling a tool directly.
+All four run today, and `jest.setup.ts` deletes the provider keys before the suite runs, so no
+Jest test can reach a real model even by accident — the orchestrator, guardrails and every route
+handler that starts a run are driven by `MockLanguageModelV4` instead. That is what makes
+assertions about agent behaviour — "this refusal happened", "this tool was never called" —
+deterministic rather than anecdotal.
 
-Once the orchestrator exists (`add-agent-orchestrator`), the Jest suite will not be able to reach
-a model provider either: `jest.setup.ts` already deletes the provider keys, ready for that change
-to drive the orchestrator with `MockLanguageModelV4` instead. That is what will make assertions
-about agent behaviour — "this refusal happened", "this tool was never called" — deterministic
-rather than anecdotal.
+Cypress is the only layer that reaches a real HTTP server, and even there nothing reaches a real
+model: the approval flow and every run the console UI tests need already decided are written
+directly through Prisma by a Cypress task (`createFixtureRun` in `cypress.config.ts`), and
+`startRun`'s own model-driven path is covered in Jest (`src/lib/agent/startRun.spec.ts`) instead.
 
-Manual verification scenarios, with the seeded fixture each one uses, will be listed here as the
-console lands.
+Manually: seed the database, run `npm run dev`, open `/console`, open any listed message, click
+**Start Triage** (needs `ANTHROPIC_API_KEY`), and watch the trace fill in as each tool call
+completes.
 
 ## Example inputs and outputs
 
@@ -213,9 +225,9 @@ Productionising it would require, at minimum:
 | --------------------------- | -------------------------------------------------------------------- | ----------- |
 | `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | **done**    |
 | `add-agent-tools`           | the five tools, their engines, retrieval index                       | **done**    |
-| `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | not started |
-| `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | not started |
-| `add-operator-console`      | inbox, case detail, live trace, approval gate                        | not started |
+| `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | **done**    |
+| `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | **done**    |
+| `add-operator-console`      | inbox, case detail, live trace, approval gate                        | **done**    |
 | `add-docs-and-verification` | worked examples, end-to-end suite, final README                      | not started |
 
 ## How this was built

@@ -5,7 +5,7 @@ import { config } from '@/lib/config';
 import { db } from '@/lib/db';
 import { forRun } from '@/lib/observability/logger';
 import type { TerminalRunStatus } from '@/lib/domain/enums';
-import { getCaseForRun } from '@/lib/services/cases';
+import { getCaseForRun, type CaseForRun } from '@/lib/services/cases';
 import { closeRun, createRun, recordStep, type RecordStepInput } from '@/lib/services/runs';
 import { claimFromAssessment } from '@/lib/guardrails/claims';
 import {
@@ -39,6 +39,20 @@ export interface ExecuteRunDeps {
   client?: PrismaClient;
   maxSteps?: number;
   timeoutMs?: number;
+  /**
+   * Called once, synchronously, the instant the `Run` row exists — before the model is ever
+   * called. A caller that needs the id without waiting for the run to finish (the console
+   * starting a run from an HTTP request it cannot leave hanging open) reads it from here rather
+   * than from the eventual return value. See openspec/changes/add-operator-console/design.md on
+   * why this is a hook rather than a second entry point that creates the row itself.
+   */
+  onRunStarted?: (runId: string) => void;
+  /**
+   * The case row, when a caller already fetched it (`startRun` checks the case exists before
+   * calling here). Saves a second identical `getCaseForRun` query for the same request; when
+   * omitted, `executeRun` fetches it itself exactly as before.
+   */
+  caseForRun?: CaseForRun;
 }
 
 export interface ExecuteRunResult {
@@ -77,13 +91,14 @@ export async function executeRun(caseId: string, deps: ExecuteRunDeps): Promise<
   const modelId =
     deps.modelId ?? (typeof deps.model === 'string' ? deps.model : deps.model.modelId);
 
-  const subject = await getCaseForRun(caseId, client);
+  const subject = deps.caseForRun ?? (await getCaseForRun(caseId, client));
   if (subject === null) throw new Error(`executeRun: no case ${caseId}`);
 
   const { id: runId } = await createRun(
     { caseId, modelId, promptVersion: PROMPT_VERSION, maxSteps },
     client,
   );
+  deps.onRunStarted?.(runId);
   const log = forRun(runId, caseId);
 
   // The phase input. Appended to synchronously inside onStepEnd — before any await — so that

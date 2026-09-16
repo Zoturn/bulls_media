@@ -4,6 +4,7 @@
  */
 
 export { executeRun, type ExecuteRunDeps, type ExecuteRunResult } from './run';
+export { startRun, type StartRunDeps, type StartRunResult } from './startRun';
 export {
   assessmentSchema,
   dispositionToRunStatus,

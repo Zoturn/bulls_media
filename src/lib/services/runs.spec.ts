@@ -1,6 +1,6 @@
 import { createTestDb, type TestDb } from '@/lib/testing/testDb';
 import { createTestRun } from '@/lib/testing/testFixtures';
-import { closeRun, createRun, listRunSteps, recordStep } from './runs';
+import { closeRun, createRun, findActiveRunForCase, listRunSteps, recordStep } from './runs';
 
 /**
  * Against a real database, because every guarantee here is one the schema enforces — the ordering
@@ -21,6 +21,25 @@ afterAll(async () => {
 async function caseWithRun(suffix: string): Promise<string> {
   const run = await createTestRun(testDb.prisma, suffix);
   return run.caseId;
+}
+
+/** A case with no run at all — `createTestRun` always creates one, which `findActiveRunForCase`'s
+ * own tests need to avoid: they create their own run and must not compete with a fixture one. */
+async function bareCase(suffix: string): Promise<string> {
+  const message = await testDb.prisma.inboundMessage.create({
+    data: {
+      id: `msg-${suffix}`,
+      fromAddress: 'test@example.com',
+      fromName: 'Test Sender',
+      subject: 'Test',
+      body: 'Test body',
+      receivedAt: new Date('2026-01-01T00:00:00.000Z'),
+    },
+  });
+  const { id } = await testDb.prisma.case.create({
+    data: { id: `case-${suffix}`, inboundMessageId: message.id },
+  });
+  return id;
 }
 
 describe('createRun', () => {
@@ -150,5 +169,33 @@ describe('the cascade', () => {
 
     expect(await testDb.prisma.run.count({ where: { id: runId } })).toBe(0);
     expect(await testDb.prisma.runStep.count({ where: { runId } })).toBe(0);
+  });
+});
+
+describe('findActiveRunForCase', () => {
+  it('finds the RUNNING run for a case', async () => {
+    const caseId = await bareCase('active-running');
+    const { id: runId } = await createRun(
+      { caseId, modelId: 'mock-model', promptVersion: 'v1', maxSteps: 5 },
+      testDb.prisma,
+    );
+
+    expect(await findActiveRunForCase(caseId, testDb.prisma)).toEqual({ id: runId });
+  });
+
+  it('returns null once the run has closed', async () => {
+    const caseId = await bareCase('active-closed');
+    const { id: runId } = await createRun(
+      { caseId, modelId: 'mock-model', promptVersion: 'v1', maxSteps: 5 },
+      testDb.prisma,
+    );
+    await closeRun({ runId, status: 'COMPLETED' }, testDb.prisma);
+
+    expect(await findActiveRunForCase(caseId, testDb.prisma)).toBeNull();
+  });
+
+  it('returns null for a case that has never had a run', async () => {
+    const caseId = await bareCase('active-none');
+    expect(await findActiveRunForCase(caseId, testDb.prisma)).toBeNull();
   });
 });

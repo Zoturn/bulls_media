@@ -1,10 +1,9 @@
 import { INJECTION_CORPUS_KEYS, SEED } from '../../../prisma/seed-data';
 import { executeRun } from '@/lib/agent/run';
-import { openCaseForMessage } from '@/lib/services/cases';
 import { listRunSteps } from '@/lib/services/runs';
 import { scriptedModel, toolsOfferedAt } from '@/lib/testing/mockModel';
 import { createTestDb, type TestDb } from '@/lib/testing/testDb';
-import { seedAll } from '@/lib/testing/testFixtures';
+import { openCaseOrThrow, seedAll } from '@/lib/testing/testFixtures';
 import { UNTRUSTED_DELIMITERS } from './untrusted';
 
 /**
@@ -31,9 +30,8 @@ afterAll(async () => {
   await testDb.cleanup();
 });
 
-async function openCase(messageId: string): Promise<string> {
-  const { id } = await openCaseForMessage(messageId, testDb.prisma);
-  return id;
+function openCase(messageId: string): Promise<string> {
+  return openCaseOrThrow(testDb.prisma, messageId);
 }
 
 /** A model that goes straight for a quote, exactly as every fixture in the corpus asks it to. */

@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { openCaseForMessage } from '@/lib/services/cases';
 
 /**
  * The fixture-creation steps every service- and tool-level integration test repeats. One
@@ -42,4 +43,15 @@ export async function createTestRun(prisma: PrismaClient, idSuffix: string) {
       maxSteps: 10,
     },
   });
+}
+
+/**
+ * Opens a case against a seeded message and unwraps the result, for tests where the message id is
+ * known-good and a `CASE_NOT_FOUND` here would mean the test's own setup is broken, not something
+ * worth a `{ ok, reason }` check at every call site.
+ */
+export async function openCaseOrThrow(prisma: PrismaClient, messageId: string): Promise<string> {
+  const opened = await openCaseForMessage(messageId, prisma);
+  if (!opened.ok) throw new Error(`test helper: no such message ${messageId}`);
+  return opened.data.id;
 }

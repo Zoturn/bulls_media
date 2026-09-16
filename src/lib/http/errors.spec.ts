@@ -26,6 +26,30 @@ describe('errorResponse', () => {
     expect(body.error.code).toBe('RUN_IN_PROGRESS');
   });
 
+  it('produces the envelope with the status and code for MODEL_NOT_CONFIGURED', async () => {
+    const res = errorResponse('MODEL_NOT_CONFIGURED');
+    const body = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(body.error.code).toBe('MODEL_NOT_CONFIGURED');
+  });
+
+  it('produces the envelope with the status and code for NO_ASSESSMENT', async () => {
+    const res = errorResponse('NO_ASSESSMENT');
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error.code).toBe('NO_ASSESSMENT');
+  });
+
+  it('produces the envelope with the status and code for ALREADY_DECIDED', async () => {
+    const res = errorResponse('ALREADY_DECIDED');
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error.code).toBe('ALREADY_DECIDED');
+  });
+
   it('produces the envelope with the status and code for DATABASE_UNAVAILABLE', async () => {
     const res = errorResponse('DATABASE_UNAVAILABLE');
     const body = await res.json();

@@ -13,6 +13,9 @@ export const ERROR_CODES = [
   'VALIDATION_ERROR',
   'NOT_FOUND',
   'RUN_IN_PROGRESS',
+  'MODEL_NOT_CONFIGURED',
+  'NO_ASSESSMENT',
+  'ALREADY_DECIDED',
   'DATABASE_UNAVAILABLE',
   'INTERNAL_ERROR',
 ] as const;
@@ -32,6 +35,12 @@ const ERROR_INFO: Record<ErrorCode, { message: string; status: number }> = {
   VALIDATION_ERROR: { message: 'The request did not pass validation.', status: 400 },
   NOT_FOUND: { message: 'The requested resource was not found.', status: 404 },
   RUN_IN_PROGRESS: { message: 'A run is already in progress for this case.', status: 409 },
+  MODEL_NOT_CONFIGURED: {
+    message: 'No model provider is configured for this server.',
+    status: 503,
+  },
+  NO_ASSESSMENT: { message: 'This run has no saved assessment to decide on.', status: 409 },
+  ALREADY_DECIDED: { message: 'A decision has already been recorded for this run.', status: 409 },
   DATABASE_UNAVAILABLE: { message: 'The database could not be reached.', status: 503 },
   INTERNAL_ERROR: { message: 'An unexpected error occurred.', status: 500 },
 };
