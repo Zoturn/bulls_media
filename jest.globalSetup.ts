@@ -10,21 +10,12 @@
  * See src/lib/testing/testDbTemplate.ts for why the template's path is scoped by a run id set
  * here, rather than a fixed literal every `npm test` invocation on the machine would share.
  */
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
 import {
   getTemplateDbPath,
+  migrateSqliteDatabase,
   removeDbFiles,
   TEST_DB_TEMPLATE_RUN_ID_ENV,
 } from './src/lib/testing/testDbTemplate';
-
-const PROJECT_ROOT = __dirname;
-const PRISMA_BIN = path.join(
-  PROJECT_ROOT,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
-);
 
 export default async function globalSetup(): Promise<void> {
   // Jest inherits process.env mutations made here into every worker it spawns afterward — the
@@ -33,11 +24,5 @@ export default async function globalSetup(): Promise<void> {
 
   const templatePath = getTemplateDbPath();
   removeDbFiles(templatePath);
-
-  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
-    cwd: PROJECT_ROOT,
-    env: { ...process.env, DATABASE_URL: `file:${templatePath}` },
-    stdio: 'pipe',
-    shell: true,
-  });
+  migrateSqliteDatabase(templatePath);
 }

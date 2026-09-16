@@ -20,7 +20,8 @@
     "cy:open": "cypress open",
     "cy:run": "cypress run",
     "e2e": "start-server-and-test dev http://localhost:3000 cy:run",
-    "spec:validate": "openspec validate --all --strict"
+    "spec:validate": "openspec validate --all --strict",
+    "examples:generate": "tsx scripts/generate-examples.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.53",

@@ -1,6 +1,15 @@
+import { execFileSync, type StdioOptions } from 'node:child_process';
 import { existsSync, unlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+const PROJECT_ROOT = path.join(__dirname, '..', '..', '..');
+const PRISMA_BIN = path.join(
+  PROJECT_ROOT,
+  'node_modules',
+  '.bin',
+  process.platform === 'win32' ? 'prisma.cmd' : 'prisma',
+);
 
 /**
  * Where this test run's shared, migrated template database lives, and the cleanup helper for it
@@ -37,4 +46,19 @@ export function removeDbFiles(dbPath: string): void {
     const f = dbPath + suffix;
     if (existsSync(f)) unlinkSync(f);
   }
+}
+
+/**
+ * Runs `prisma migrate deploy` against a fresh SQLite file at `dbPath`. Has nothing Jest-specific
+ * about it — unlike `getTemplateDbPath`, it needs no run-scoped env var — so both
+ * `jest.globalSetup.ts` (building the shared test template) and `scripts/generate-examples.ts`
+ * (building its own disposable database) call this rather than each invoking `prisma` themselves.
+ */
+export function migrateSqliteDatabase(dbPath: string, stdio: StdioOptions = 'pipe'): void {
+  execFileSync(PRISMA_BIN, ['migrate', 'deploy'], {
+    cwd: PROJECT_ROOT,
+    env: { ...process.env, DATABASE_URL: `file:${dbPath}` },
+    stdio,
+    shell: true,
+  });
 }

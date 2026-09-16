@@ -3,10 +3,9 @@
 An AI agent that triages inbound advertising enquiries for a media sales team, and stops for a
 human before anything leaves the building.
 
-> **Status:** the agent — orchestrator, tools, guardrails — and the operator console that runs and
-> approves it are built and tested end to end. The table in
-> [Implementation status](#implementation-status) says exactly what is built so far. Worked
-> examples and a final documentation pass are still to come with `add-docs-and-verification`.
+> **Status:** every planned change is built and tested end to end — the agent, the operator
+> console, and the worked examples and documentation below. The table in
+> [Implementation status](#implementation-status) says exactly what each change delivered.
 
 ## Problem statement
 
@@ -99,7 +98,7 @@ Three properties do the real work:
   quoted total must equal what the calculator returned; a refused case must carry no quote.
 
 Detail, and the alternatives rejected along the way, is in
-[`openspec/changes/add-project-foundation/design.md`](openspec/changes/add-project-foundation/design.md).
+[`openspec/changes/archive/2026-09-15-add-project-foundation/design.md`](openspec/changes/archive/2026-09-15-add-project-foundation/design.md).
 
 ## The operator console
 
@@ -130,11 +129,10 @@ SQLite is used so that the first run costs nothing but `npm install`. Moving to 
 `DATABASE_URL` in `.env` and the `provider` line in `prisma/schema.prisma` — the schema uses no
 engine-specific types.
 
-No agent, tool or model call exists yet in this codebase — `add-project-foundation` is schema,
-seed, configuration, logging and a health check only. `ANTHROPIC_API_KEY` is validated by
-`src/lib/config.ts` when present, but nothing reads it: it is deliberately optional so the console
-and the whole Jest suite start with no key at all, and setting it now has no observable effect
-until `add-agent-orchestrator` exists.
+`ANTHROPIC_API_KEY` is validated by `src/lib/config.ts` when present but is otherwise optional: the
+console, the whole Jest suite and every other command below run with no key at all — it is only
+read the moment an operator clicks **Start Triage** in the console to run the agent against a real
+model.
 
 ## How to test and verify
 
@@ -156,14 +154,38 @@ model: the approval flow and every run the console UI tests need already decided
 directly through Prisma by a Cypress task (`createFixtureRun` in `cypress.config.ts`), and
 `startRun`'s own model-driven path is covered in Jest (`src/lib/agent/startRun.spec.ts`) instead.
 
-Manually: seed the database, run `npm run dev`, open `/console`, open any listed message, click
-**Start Triage** (needs `ANTHROPIC_API_KEY`), and watch the trace fill in as each tool call
-completes.
+Manually: seed the database, run `npm run dev`, open `/console`. Any seeded message demonstrates
+starting a run; the "Business cases covered" table above names which message demonstrates which
+case (its subject line is visible in the inbox) — click **Start Triage** (needs
+`ANTHROPIC_API_KEY`) and watch the trace fill in as each tool call completes.
+
+`npm run e2e` starts its own dev server on port 3000. Next.js 16 allows only one `next dev` per
+project directory, regardless of port — if you already have one running on a different port for
+this project (say, from poking around during development), `npm run e2e` fails to start its own
+with `Another next dev server is already running`. Stop the other one first; a server already
+running on the exact default port 3000 is reused automatically and needs no action.
+
+`npm run examples:generate` regenerates every file under [`examples/`](#example-inputs-and-outputs)
+from a fresh run of the real orchestrator against its own disposable database — not part of the
+verification gate above, since nothing here asserts examples are current, but the way to confirm
+they still are.
 
 ## Example inputs and outputs
 
-To be added once the orchestrator runs end to end: a seeded enquiry, the resulting structured
-assessment, the drafted reply, and the step-by-step trace.
+One worked example per business case above, each showing the inbound message, the full step-by-
+step trace and the resulting assessment — regenerated from a real run of the orchestrator against
+the real deterministic tools by `npm run examples:generate`
+([design.md](openspec/changes/archive/2026-09-16-add-docs-and-verification/design.md) says what
+"real" means there):
+
+| Case                                               | Example                                                                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| A complete brief in a permitted vertical           | [examples/01-ordinary-brief-quoted.md](examples/01-ordinary-brief-quoted.md)                               |
+| A brief in a prohibited vertical                   | [examples/02-prohibited-vertical-refused.md](examples/02-prohibited-vertical-refused.md)                   |
+| A brief in a vertical requiring review             | [examples/03-review-vertical-needs-review.md](examples/03-review-vertical-needs-review.md)                 |
+| A message carrying instructions aimed at the agent | [examples/04-injection-attempt-unchanged-workflow.md](examples/04-injection-attempt-unchanged-workflow.md) |
+| A message that is not an advertising brief         | [examples/05-not-a-brief-early-exit.md](examples/05-not-a-brief-early-exit.md)                             |
+| A brief missing what is needed to quote            | [examples/06-missing-budget-needs-info.md](examples/06-missing-budget-needs-info.md)                       |
 
 ## Trade-offs and limitations
 
@@ -221,14 +243,14 @@ Productionising it would require, at minimum:
 
 ## Implementation status
 
-| Change                      | Delivers                                                             | Status      |
-| --------------------------- | -------------------------------------------------------------------- | ----------- |
-| `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | **done**    |
-| `add-agent-tools`           | the five tools, their engines, retrieval index                       | **done**    |
-| `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | **done**    |
-| `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | **done**    |
-| `add-operator-console`      | inbox, case detail, live trace, approval gate                        | **done**    |
-| `add-docs-and-verification` | worked examples, end-to-end suite, final README                      | not started |
+| Change                      | Delivers                                                             | Status   |
+| --------------------------- | -------------------------------------------------------------------- | -------- |
+| `add-project-foundation`    | schema, migration, deterministic seed, config, logging, health check | **done** |
+| `add-agent-tools`           | the five tools, their engines, retrieval index                       | **done** |
+| `add-agent-orchestrator`    | run loop, phases, step budget, structured result, trace              | **done** |
+| `add-agent-guardrails`      | refusal rules, injection defences, post-conditions                   | **done** |
+| `add-operator-console`      | inbox, case detail, live trace, approval gate                        | **done** |
+| `add-docs-and-verification` | worked examples, end-to-end suite, final README                      | **done** |
 
 ## How this was built
 
