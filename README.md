@@ -98,15 +98,24 @@ the step budget without a second one. The consequence is named honestly in
 [Trade-offs and limitations](#trade-offs-and-limitations): resumability is not free this way, and
 this project does not have it yet.
 
-Three properties do the real work:
+Four properties, named against what an agent design is actually judged on:
 
-- **The model never computes and never decides policy.** A price comes from `calculate_quote`; a
-  policy outcome comes from `check_ad_policy`. The model chooses which tool to call and explains
-  the result. A number a model produced is a number no test can pin.
-- **The loop is bounded and phase-scoped.** A step budget caps iterations, and `prepareStep`
-  narrows the available tools per phase, so a tool that must not run in a phase cannot.
-- **Post-conditions are checked against the trace, not against the model's own account.** The
-  quoted total must equal what the calculator returned; a refused case must carry no quote.
+- **Planning.** A phase machine — `TRIAGE → RESEARCH → PRICING → PERSIST` — decides which tools
+  exist at each step. The phase is computed from tool _results_ recorded so far, never from the
+  model's own account of where it is or anything an inbound message asserts, so a plan cannot be
+  advanced by a claim — only by evidence a tool actually produced.
+- **Tool use.** Five tools — `check_ad_policy`, `search_rate_card`, `lookup_inventory`,
+  `calculate_quote`, `save_case` — each a deterministic engine the model calls and reads back. The
+  model never computes a price or decides a policy outcome itself: a price comes from
+  `calculate_quote`, a policy decision from `check_ad_policy`. A number a model produced is a
+  number no test can pin.
+- **State management.** A run's state is exactly its recorded steps: plain, serializable JSON
+  persisted to `Run`/`RunStep` as each one completes, never a class instance or an in-memory plan
+  a crash would lose.
+- **Prompt hygiene.** The inbound message is untrusted text: it is delimited, confined to a user
+  message, and never reaches the system prompt, which is a fixed, versioned constant. Post-
+  conditions are then checked against the recorded trace, not the model's own account — the quoted
+  total must equal what `calculate_quote` returned, and a refused case must carry no quote.
 
 Detail, and the alternatives rejected along the way, is in
 [`openspec/changes/archive/2026-09-15-add-project-foundation/design.md`](openspec/changes/archive/2026-09-15-add-project-foundation/design.md).
