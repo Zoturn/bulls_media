@@ -40,9 +40,11 @@ const result = await generateText({
   tools: allTools,
   temperature: 0,
   stopWhen: isStepCount(config.maxSteps),
-  timeout: { total: config.timeoutMs },
-  prepareStep: ({ stepNumber }) => ({
-    activeTools: activeToolsForPhase(phaseAt(stepNumber)),
+  timeout: { totalMs: config.timeoutMs },
+  // The phase comes from the tool results recorded so far, not from the step number — a step the
+  // model wasted must not advance it, and nothing the model says may either.
+  prepareStep: () => ({
+    activeTools: activeToolsFor(phaseFor(history)),
   }),
   output: Output.object({ schema: briefAssessmentSchema }),
 });

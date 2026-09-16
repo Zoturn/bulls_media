@@ -14,6 +14,12 @@ delete process.env.OPENAI_API_KEY;
 // Fixed, so any snapshot or id derived from the clock is stable across machines and runs.
 process.env.TZ = 'UTC';
 
+// Silent by default: an agent run logs a line per step, and several hundred of those interleaved
+// with Jest's own reporter buries the failure that matters. A spec that is *about* logging sets
+// its own level (see src/lib/observability/logger.spec.ts, which builds its own instance), and a
+// developer chasing a run can still override this from the environment.
+process.env.LOG_LEVEL ??= 'silent';
+
 // Points at a throwaway file the suite never actually opens — Prisma is mocked in unit specs, and
 // this only stops the client's constructor complaining about an unset datasource URL.
 process.env.DATABASE_URL ??= 'file:./test.db';

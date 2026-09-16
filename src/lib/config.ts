@@ -24,7 +24,12 @@ const envSchema = z.object({
   AGENT_MODEL: z.string().min(1).default('claude-sonnet-5'),
   AGENT_MAX_STEPS: positiveIntFromEnv().default(12),
   AGENT_TIMEOUT_MS: positiveIntFromEnv().default(120_000),
-  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  // The value space is Pino's own set of levels, 'silent' included — this schema describes what
+  // the variable may legally hold, not what any particular deployment should choose. The Jest
+  // suite happens to be the first caller to want silence (jest.setup.ts), but a one-off script or
+  // a CLI invocation wants the same thing, and neither is a reason for the logger to know it is
+  // under test.
+  LOG_LEVEL: z.enum(['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });
 
 function loadConfig() {

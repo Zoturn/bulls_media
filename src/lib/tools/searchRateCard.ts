@@ -51,5 +51,3 @@ export function createSearchRateCardTool(
     },
   });
 }
-
-export const searchRateCardTool = createSearchRateCardTool();

@@ -30,15 +30,24 @@ export const saveCaseOutputSchema = z.union([
   failSchema('ALREADY_SAVED'),
 ]);
 
+/**
+ * What the model is told this tool does. Exported because `src/lib/agent/tools.ts` builds a
+ * run-bound variant of this tool and must describe it identically — this description is read by
+ * the model and lands in the trace (.claude/rules/agent-tools.md rule 6), so two copies would be
+ * two things the agent believes about the same tool.
+ */
+export const SAVE_CASE_DESCRIPTION =
+  'Save the final assessment for this enquiry — disposition, structured result, quote (only ' +
+  'when disposition is QUOTED), refusal reason (only when REFUSED), and drafted reply. The only ' +
+  'tool permitted to write anything. Call it once, when you have decided the outcome. Fails with ' +
+  'RUN_NOT_FOUND for an unknown run, or ALREADY_SAVED if an assessment has already been saved — ' +
+  'it never overwrites one.';
+
 export function createSaveCaseTool(
   client?: PrismaClient,
 ): Tool<z.infer<typeof saveCaseInputSchema>, z.infer<typeof saveCaseOutputSchema>> {
   return tool({
-    description:
-      'Save the final assessment for a run — disposition, structured result, quote (only when ' +
-      'disposition is QUOTED), refusal reason (only when REFUSED), and drafted reply. The only ' +
-      'tool permitted to write anything. Fails with RUN_NOT_FOUND for an unknown run, or ' +
-      'ALREADY_SAVED if this run already has a saved assessment — never overwrites one.',
+    description: SAVE_CASE_DESCRIPTION,
     inputSchema: saveCaseInputSchema,
     outputSchema: saveCaseOutputSchema,
     execute: async (input) => {
@@ -47,5 +56,3 @@ export function createSaveCaseTool(
     },
   });
 }
-
-export const saveCaseTool = createSaveCaseTool();

@@ -55,5 +55,3 @@ export function createLookupInventoryTool(
     },
   });
 }
-
-export const lookupInventoryTool = createLookupInventoryTool();

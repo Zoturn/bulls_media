@@ -19,6 +19,14 @@ export const RUN_STATUSES = ['RUNNING', 'COMPLETED', 'REFUSED', 'NEEDS_HUMAN', '
 export const runStatusSchema = z.enum(RUN_STATUSES);
 export type RunStatus = z.infer<typeof runStatusSchema>;
 
+/**
+ * The statuses a run can *finish* in. Derived rather than listed a second time, so the two cannot
+ * drift: adding a status above and forgetting it here is impossible. Every function that ends a
+ * run takes this type, which is how "a run is never left RUNNING" becomes a compile-time fact
+ * instead of a convention.
+ */
+export type TerminalRunStatus = Exclude<RunStatus, 'RUNNING'>;
+
 export const RUN_STEP_TYPES = ['MODEL_CALL', 'TOOL_CALL', 'TERMINAL'] as const;
 export const runStepTypeSchema = z.enum(RUN_STEP_TYPES);
 export type RunStepType = z.infer<typeof runStepTypeSchema>;

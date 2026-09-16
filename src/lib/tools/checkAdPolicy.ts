@@ -13,8 +13,8 @@ import { okSchema } from './schemas';
  * `general` rule rather than erroring, so the model always gets a decision to reason from.
  *
  * Built by a factory taking an optional Prisma client, same as the services it wraps — real code
- * uses the default-constructed `checkAdPolicyTool`; a test builds its own instance against a
- * disposable database. See openspec/changes/add-agent-tools/design.md.
+ * takes the default-constructed instance from `agentTools` in ./index.ts; a test builds its own
+ * against a disposable database. See openspec/changes/add-agent-tools/design.md.
  */
 
 export const checkAdPolicyInputSchema = z.object({
@@ -52,5 +52,3 @@ export function createCheckAdPolicyTool(
     },
   });
 }
-
-export const checkAdPolicyTool = createCheckAdPolicyTool();

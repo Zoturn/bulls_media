@@ -22,7 +22,10 @@ export const calculateQuoteInputSchema = z.object({
     .min(1, 'at least one line item is required'),
 });
 
-const pricedLineItemSchema = z.object({
+// Exported because it is the authority on a priced line item's shape: the agent's own assessment
+// schema picks its quote fields out of this one rather than restating them, so a change here
+// fails to compile there instead of leaving two descriptions that quietly disagree.
+export const pricedLineItemSchema = z.object({
   packageId: z.string(),
   requestedVolume: z.number().int().positive(),
   subtotalCents: z.number().int().nonnegative(),
@@ -64,5 +67,3 @@ export function createCalculateQuoteTool(
     },
   });
 }
-
-export const calculateQuoteTool = createCalculateQuoteTool();

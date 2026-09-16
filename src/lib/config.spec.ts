@@ -74,11 +74,18 @@ describe('config', () => {
   });
 
   it('applies defaults for AGENT_MAX_STEPS, AGENT_TIMEOUT_MS and LOG_LEVEL', () => {
-    const { config } = loadConfigWith({ DATABASE_URL: 'file:./dev.db' });
+    // LOG_LEVEL is cleared explicitly: jest.setup.ts sets it to 'silent' for the whole suite, so
+    // "the default" has to be asserted against an environment that genuinely does not set it.
+    const { config } = loadConfigWith({ DATABASE_URL: 'file:./dev.db', LOG_LEVEL: undefined });
 
     expect(config.AGENT_MAX_STEPS).toBe(12);
     expect(config.AGENT_TIMEOUT_MS).toBe(120_000);
     expect(config.LOG_LEVEL).toBe('info');
+  });
+
+  it("accepts Pino's 'silent' level, which the Jest suite runs at", () => {
+    const { config } = loadConfigWith({ DATABASE_URL: 'file:./dev.db', LOG_LEVEL: 'silent' });
+    expect(config.LOG_LEVEL).toBe('silent');
   });
 
   it('rejects an unrecognised LOG_LEVEL', () => {

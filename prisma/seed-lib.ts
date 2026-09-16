@@ -6,24 +6,40 @@ import { POLICY_RULES, RATE_CARD, SEED } from './seed-data';
  * point Prisma runs) and the Cypress `reseed` task (cypress.config.ts) both call this, so there
  * is one implementation of "what seeding means" rather than two that can drift apart.
  */
-export async function seedDatabase(
-  prisma: PrismaClient,
-): Promise<{ messages: number; rates: number; policies: number }> {
-  // createdAt is passed explicitly rather than left to the column's `@default(now())`: that
-  // default is exactly the kind of clock read the "seed is deterministic" requirement forbids,
-  // and it would otherwise make every reseed produce a different timestamp for the same row.
-  //
-  // createMany rather than a create() per row: none of these rows reference each other, so one
-  // statement per table (3 round trips) does the same insert as eighteen individual ones.
+// Each table is seeded by its own exported function so a test that needs only part of the corpus
+// — policy rules but no rate card, messages but neither — calls the same code the real seed runs
+// rather than writing a third version of it. See src/lib/testing/testFixtures.ts, which re-exports
+// these rather than reimplementing them.
+//
+// createdAt is passed explicitly rather than left to the column's `@default(now())`: that default
+// is exactly the kind of clock read the "seed is deterministic" requirement forbids, and it would
+// otherwise make every reseed produce a different timestamp for the same row.
+//
+// createMany rather than a create() per row: none of these rows reference each other, so one
+// statement per table does the same insert as eighteen individual ones.
+
+export async function seedRateCard(prisma: PrismaClient): Promise<void> {
   await prisma.rateCardPackage.createMany({
     data: RATE_CARD.map((pkg) => ({ ...pkg, createdAt: SEED.seededAt })),
   });
+}
 
+export async function seedPolicyRules(prisma: PrismaClient): Promise<void> {
   await prisma.policyRule.createMany({
     data: POLICY_RULES.map((rule) => ({ ...rule, createdAt: SEED.seededAt })),
   });
+}
 
+export async function seedInboundMessages(prisma: PrismaClient): Promise<void> {
   await prisma.inboundMessage.createMany({ data: Object.values(SEED.messages) });
+}
+
+export async function seedDatabase(
+  prisma: PrismaClient,
+): Promise<{ messages: number; rates: number; policies: number }> {
+  await seedRateCard(prisma);
+  await seedPolicyRules(prisma);
+  await seedInboundMessages(prisma);
 
   return {
     rates: RATE_CARD.length,

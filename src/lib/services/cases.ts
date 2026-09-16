@@ -9,6 +9,62 @@ import type { AssessmentDisposition } from '@/lib/domain/enums';
  * `create`) rather than a `findUnique` check first — a check-then-act race with no benefit here.
  */
 
+/**
+ * The seed creates inbound messages but no cases — a case is opened when somebody decides to work
+ * a message, which is an operator action, not a fact about the mailbox. Idempotent by way of
+ * `Case.inboundMessageId`'s unique index, so opening the same message twice returns the case that
+ * already exists rather than failing or creating a second one.
+ */
+export async function openCaseForMessage(
+  inboundMessageId: string,
+  client: PrismaClient = db,
+): Promise<{ id: string }> {
+  try {
+    // `upsert` with an empty `update`, not read-then-create: the uniqueness that makes this
+    // idempotent is the database's, so it is the database that should enforce it in one statement
+    // — the same reasoning the header above gives for `saveAssessment`. A read-then-create would
+    // also need a second read to recover from losing the race it opens.
+    return await client.case.upsert({
+      where: { inboundMessageId },
+      update: {},
+      create: { inboundMessageId },
+      select: { id: true },
+    });
+  } catch (error) {
+    // P2003: the foreign key has nothing to point at, i.e. there is no such inbound message.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      throw new Error(`openCaseForMessage: no inbound message ${inboundMessageId}`);
+    }
+    throw error;
+  }
+}
+
+export interface CaseForRun {
+  id: string;
+  inboundMessage: {
+    fromName: string;
+    fromAddress: string;
+    subject: string;
+    body: string;
+  };
+}
+
+/** The case and the message the agent is about to read. Returns null for an unknown case id. */
+export async function getCaseForRun(
+  caseId: string,
+  client: PrismaClient = db,
+): Promise<CaseForRun | null> {
+  return client.case.findUnique({
+    where: { id: caseId },
+    select: {
+      id: true,
+      inboundMessage: {
+        select: { fromName: true, fromAddress: true, subject: true, body: true },
+      },
+    },
+  });
+}
+
 export interface SaveAssessmentInput {
   runId: string;
   disposition: AssessmentDisposition;
